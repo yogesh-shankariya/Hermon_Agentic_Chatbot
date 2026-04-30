@@ -1,0 +1,10 @@
+pandas
+PyYAML
+SQLAlchemy
+psycopg[binary]
+python-dotenv
+ipykernel
+langchain[openai]
+langchain-openai
+langgraph
+streamlit

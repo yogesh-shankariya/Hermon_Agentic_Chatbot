@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Hermon chatbot">
+  <defs>
+    <linearGradient id="earGradient" x1="0" y1="240" x2="512" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4c95ff"/>
+      <stop offset="1" stop-color="#5957e5"/>
+    </linearGradient>
+    <linearGradient id="shellGradient" x1="102" y1="54" x2="384" y2="372" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8fbff"/>
+      <stop offset="1" stop-color="#d8e4f1"/>
+    </linearGradient>
+    <linearGradient id="visorRing" x1="108" y1="172" x2="407" y2="316" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#dbe7f2"/>
+      <stop offset="1" stop-color="#9fb7dc"/>
+    </linearGradient>
+  </defs>
+  <rect x="70" y="63" width="31" height="162" rx="15.5" fill="#0b4aa2"/>
+  <rect x="411" y="63" width="31" height="162" rx="15.5" fill="#0b4aa2"/>
+  <rect x="0" y="165" width="102" height="150" rx="36" fill="#4c95ff"/>
+  <rect x="410" y="165" width="102" height="150" rx="36" fill="url(#earGradient)"/>
+  <path d="M60 232C60 117 143 39 256 39s196 78 196 193v51c0 43-35 78-78 78H138c-43 0-78-35-78-78v-51Z" fill="url(#shellGradient)"/>
+  <rect x="105" y="137" width="302" height="179" rx="89.5" fill="url(#visorRing)"/>
+  <rect x="135" y="167" width="242" height="118" rx="59" fill="#0b4aa2"/>
+  <rect x="183" y="206" width="30" height="41" rx="15" fill="#58a0ff"/>
+  <rect x="300" y="206" width="30" height="41" rx="15" fill="#7568f0"/>
+  <path d="M482 286v67c0 38-31 68-69 68h-65" fill="none" stroke="#0b4aa2" stroke-width="30" stroke-linecap="round"/>
+  <rect x="263" y="399" width="109" height="74" rx="37" fill="#0b4aa2"/>
+</svg>

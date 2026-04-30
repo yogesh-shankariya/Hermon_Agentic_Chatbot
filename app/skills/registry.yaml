@@ -1,0 +1,8 @@
+skills:
+  - name: lead_analytics
+    description: "Use for read-only SQL analytics about leads/prospects/customers: lead counts, active/new leads, lead status and normalized pipeline roles, won/lost/follow-up/no-show lead status, source breakdowns, assignment/owner and setter analysis, missing owner/setter/status/next-touch-point checks, overdue follow-ups, stale or stuck leads, and lead creation trends by date range. Do not use for revenue, contracts, payments, invoices, refunds, subscriptions, appointment/call analytics, appointment no-show rates, Fathom call records, opt-ins, UTM/traffic attribution, form answers, provider integrations, webhook troubleshooting, credentials, or full single-lead 360 summaries."
+    path: modules/lead_analytics.md
+    primary_tables:
+      - leads
+      - sales_statuses
+      - marketing_sources

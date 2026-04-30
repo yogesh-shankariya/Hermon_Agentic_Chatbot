@@ -1,0 +1,40 @@
+blocked_tables:
+  always_block:
+    - provider_credentials
+    - org_api_keys
+    - outbound_webhook_endpoints
+
+  block_for_business_chatbot:
+    - _prisma_migrations
+    - provider_integrations
+    - integration_health_checks
+    - webhook_events
+    - outbound_webhook_triggers
+    - outbound_webhook_delivery_logs
+
+blocked_columns:
+  provider_credentials:
+    - encrypted_api_key
+    - encrypted_webhook_secret
+    - slack_credential
+
+  org_api_keys:
+    - encrypted_key
+    - key_prefix
+
+  outbound_webhook_endpoints:
+    - secret
+
+  webhook_events:
+    - payload
+
+  fathom_call_records:
+    - raw_payload
+
+  notification_logs:
+    - payload
+
+  outbound_webhook_delivery_logs:
+    - event_payload
+    - response_body
+
