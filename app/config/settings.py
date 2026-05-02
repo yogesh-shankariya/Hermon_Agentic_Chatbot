@@ -24,10 +24,21 @@ class SqlAgentSettings:
     """Runtime settings for the generic SQL agent."""
 
     model: str
+    reasoning: dict[str, Any] | None
+    prompt_cache_key: str | None
+    prompt_cache_retention: str | None
+    service_tier: str | None
     default_org_id: str | None
     max_tool_rows: int
     enabled_skills: tuple[str, ...]
     prompt_version: str
+
+
+@dataclass(frozen=True)
+class SilverTruthSettings:
+    """Runtime settings for silver-truth batch generation."""
+
+    service_tier: str | None
 
 
 @dataclass(frozen=True)
@@ -70,6 +81,12 @@ def get_sql_agent_settings() -> SqlAgentSettings:
 
     default_org_id_env = database_config.get("default_org_id_env", "HERMON_DEFAULT_CLERK_ORG_ID")
     model = os.getenv("OPENAI_MODEL") or agent_config.get("Model") or "gpt-5.4"
+    reasoning = agent_config.get("reasoning")
+    if reasoning is not None and not isinstance(reasoning, dict):
+        raise RuntimeError("llm.sql_agent.reasoning must be a YAML object when provided.")
+    prompt_cache_key = agent_config.get("prompt_cache_key")
+    prompt_cache_retention = agent_config.get("prompt_cache_retention")
+    service_tier = agent_config.get("service_tier")
     max_tool_rows = _int_env(
         "HERMON_AGENT_MAX_TOOL_ROWS",
         int(agent_config.get("max_tool_rows", 50)),
@@ -77,10 +94,27 @@ def get_sql_agent_settings() -> SqlAgentSettings:
 
     return SqlAgentSettings(
         model=model,
+        reasoning=reasoning,
+        prompt_cache_key=str(prompt_cache_key) if prompt_cache_key else None,
+        prompt_cache_retention=str(prompt_cache_retention) if prompt_cache_retention else None,
+        service_tier=str(service_tier) if service_tier else None,
         default_org_id=os.getenv(default_org_id_env),
         max_tool_rows=max_tool_rows,
         enabled_skills=tuple(agent_config.get("enabled_skills", ["lead_analytics"])),
         prompt_version=str(prompt_config.get("version", "1_0_0")),
+    )
+
+
+def get_silver_truth_settings() -> SilverTruthSettings:
+    """Return settings for silver-truth test generation."""
+
+    config = load_app_config()
+    testing_config = config.get("testing", {})
+    silver_truth_config = testing_config.get("silver_truth", {})
+    service_tier = silver_truth_config.get("service_tier")
+
+    return SilverTruthSettings(
+        service_tier=str(service_tier) if service_tier else None,
     )
 
 

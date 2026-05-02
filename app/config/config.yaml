@@ -5,6 +5,10 @@ llm:
   # do not create a new prompt for every skill unless behavior truly diverges.
   sql_agent:
     Model: "gpt-5.4"
+    # reasoning:
+    #   effort: "high"
+    prompt_cache_key: "hermon_sql_agent_v1"
+    prompt_cache_retention: "24h"
     max_tool_rows: 50
     enabled_skills:
       - "lead_analytics"
@@ -27,3 +31,10 @@ prompts:
   # Prompt files are versioned as app/prompts/<agent>/<version>.yaml.
   sql_agent:
     version: "1_0_0"
+
+testing:
+  silver_truth:
+    # Flex is lower cost but slower and can be unavailable; keep production on
+    # the default service tier by leaving llm.sql_agent.service_tier unset.
+    # Set to "default" to use normal processing instead of flex.
+    service_tier: "default"
