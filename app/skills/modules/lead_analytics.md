@@ -218,7 +218,7 @@ LEFT JOIN marketing_sources last_ms
  AND last_ms.clerk_org_id = l.clerk_org_id
 ```
 
-Use `leads.first_source_name` and `leads.last_source_name` when a simple source report is enough.
+For source reports, prefer normalized marketing source joins by ID. Use `first_source_name` and `last_source_name` only as fallback display values when the corresponding source ID is missing or unmatched.
 
 Use `marketing_sources` when the user asks for normalized source names, aliases, archived sources, or source descriptions.
 
@@ -481,6 +481,57 @@ or, for follow-up/stale lists:
 ORDER BY l.next_touch_point_at NULLS FIRST, l.updated_at ASC, l.created_at ASC, l.id ASC
 ```
 
+For list-style queries with `LIMIT`, include the exact total matching row count whenever possible.
+
+Use:
+
+```sql
+COUNT(*) OVER() AS total_matching_rows
+```
+
+## Source Selection and Marketing Source Join Rules
+
+The `leads` table has three different source concepts:
+
+- `l.source` = high-level lead source enum, such as CALENDLY, MANUAL, TYPEFORM, WEBINAR, NEWSLETTER, LANDING_PAGE, OTHER.
+- `l.first_source_id` / `l.first_source_name` = original or first-touch marketing source.
+- `l.last_source_id` / `l.last_source_name` = latest or last-touch marketing source.
+
+Always join marketing sources by ID, not by name.
+
+Correct first source join:
+
+    LEFT JOIN marketing_sources first_ms
+      ON first_ms.id = l.first_source_id
+     AND first_ms.clerk_org_id = l.clerk_org_id
+
+Correct last source join:
+
+    LEFT JOIN marketing_sources last_ms
+      ON last_ms.id = l.last_source_id
+     AND last_ms.clerk_org_id = l.clerk_org_id
+
+Do not join using:
+
+    first_ms.name = l.first_source_name
+    last_ms.name = l.last_source_name
+
+Default source behavior:
+
+- For generic questions like "source distribution", "lead source breakdown", "which source generated the most leads", "top source", or "where are leads coming from", use first-touch source by default:
+  `l.first_source_id -> marketing_sources.id`, display `first_ms.name`.
+
+- For latest source questions like "latest source distribution", "last source breakdown", "last-touch source", "recent source", or "what was the latest source before conversion", use last-touch source:
+  `l.last_source_id -> marketing_sources.id`, display `last_ms.name`.
+
+- Use `l.first_source_name` only as fallback when `l.first_source_id` is NULL or has no matching marketing source row.
+
+- Use `l.last_source_name` only as fallback when `l.last_source_id` is NULL or has no matching marketing source row.
+
+- Use `l.source` only when the user asks for high-level source category or enum source such as Calendly, Manual, Typeform, Webinar, Newsletter, Landing Page, or Other.
+
+- Do not use raw `first_source_name` or `last_source_name` directly for distribution reports unless the user explicitly asks for raw source names.
+
 ## Common Query Patterns
 
 ## Count Active Leads
@@ -589,7 +640,62 @@ GROUP BY l.source
 ORDER BY lead_count DESC, l.source ASC;
 ```
 
-## Leads by First Source Name
+## Default Source Distribution
+
+Use this for generic source questions such as:
+
+- give me all distribution of source
+- source distribution
+- lead source breakdown
+- which source generated the most leads
+- top source
+- where are most leads coming from
+- normalized first source counts
+
+Default interpretation: first-touch normalized marketing source.
+
+This pattern also covers normalized first source count questions.  
+Use `l.first_source_id -> marketing_sources.id` and display `first_ms.name`, with `l.first_source_name` only as fallback when the source ID is missing or unmatched.
+
+```sql
+WITH source_counts AS (
+  SELECT
+    COALESCE(
+      NULLIF(TRIM(first_ms.name), ''),
+      NULLIF(TRIM(l.first_source_name), ''),
+      'Unknown'
+    ) AS source,
+    COUNT(*) AS lead_count
+  FROM leads l
+  LEFT JOIN marketing_sources first_ms
+    ON first_ms.id = l.first_source_id
+   AND first_ms.clerk_org_id = l.clerk_org_id
+  WHERE l.clerk_org_id = :org_id
+    AND l.is_deleted = false
+  GROUP BY COALESCE(
+    NULLIF(TRIM(first_ms.name), ''),
+    NULLIF(TRIM(l.first_source_name), ''),
+    'Unknown'
+  )
+),
+total AS (
+  SELECT SUM(lead_count) AS total_leads
+  FROM source_counts
+)
+SELECT
+  sc.source,
+  sc.lead_count,
+  ROUND(sc.lead_count * 100.0 / NULLIF(t.total_leads, 0), 2) AS percentage_of_total
+FROM source_counts sc
+CROSS JOIN total t
+ORDER BY sc.lead_count DESC, sc.source ASC;
+```
+
+
+## Raw Leads by First Source Name
+
+Use this only when the user explicitly asks for raw first source names.
+Do not use this for generic source distribution or top source questions.
 
 ```sql
 SELECT
@@ -602,7 +708,10 @@ GROUP BY COALESCE(NULLIF(TRIM(l.first_source_name), ''), 'Unknown')
 ORDER BY lead_count DESC, first_source_name ASC;
 ```
 
-## Leads by Last Source Name
+## Raw Leads by Last Source Name
+
+Use this only when the user explicitly asks for raw last source names.
+Do not use this for generic source distribution or top source questions.
 
 ```sql
 SELECT
@@ -615,7 +724,10 @@ GROUP BY COALESCE(NULLIF(TRIM(l.last_source_name), ''), 'Unknown')
 ORDER BY lead_count DESC, last_source_name ASC;
 ```
 
-## Leads by First and Last Source Names
+## Raw Leads by First and Last Source Names
+
+Use this only when the user explicitly asks to compare raw first source name and raw last source name.
+Do not use this for generic source distribution or normalized source reporting.
 
 ```sql
 SELECT
@@ -629,24 +741,6 @@ GROUP BY
   COALESCE(NULLIF(TRIM(l.first_source_name), ''), 'Unknown'),
   COALESCE(NULLIF(TRIM(l.last_source_name), ''), 'Unknown')
 ORDER BY lead_count DESC, first_source_name ASC, last_source_name ASC;
-```
-
-## Leads by Normalized Marketing Source
-
-Use this when the user asks for normalized source names, source aliases, archived sources, or marketing source metadata.
-
-```sql
-SELECT
-  COALESCE(first_ms.name, NULLIF(TRIM(l.first_source_name), ''), 'Unknown') AS normalized_first_source,
-  COUNT(*) AS lead_count
-FROM leads l
-LEFT JOIN marketing_sources first_ms
-  ON first_ms.id = l.first_source_id
- AND first_ms.clerk_org_id = l.clerk_org_id
-WHERE l.clerk_org_id = :org_id
-  AND l.is_deleted = false
-GROUP BY COALESCE(first_ms.name, NULLIF(TRIM(l.first_source_name), ''), 'Unknown')
-ORDER BY lead_count DESC, normalized_first_source ASC;
 ```
 
 ## Leads with No Status
@@ -734,6 +828,41 @@ WHERE l.clerk_org_id = :org_id
 GROUP BY COALESCE(NULLIF(TRIM(l.assigned_to), ''), 'Unassigned')
 ORDER BY lead_count DESC, assigned_to ASC;
 ```
+
+## Top Actual Setter by Lead Count
+
+Use this when the user asks:
+
+- which setter has the most leads
+- top setter by lead count
+- best setter by number of leads
+
+Exclude missing setter values. Do not return `No Setter` as the top setter unless the user explicitly asks to include leads without a setter.
+
+This query returns all setters tied for the highest lead count.
+
+```sql
+WITH setter_counts AS (
+  SELECT
+    NULLIF(TRIM(l.setter_id), '') AS setter_id,
+    COUNT(*) AS lead_count
+  FROM leads l
+  WHERE l.clerk_org_id = :org_id
+    AND l.is_deleted = false
+    AND NULLIF(TRIM(l.setter_id), '') IS NOT NULL
+  GROUP BY NULLIF(TRIM(l.setter_id), '')
+),
+max_count AS (
+  SELECT MAX(lead_count) AS max_lead_count
+  FROM setter_counts
+)
+SELECT
+  sc.setter_id,
+  sc.lead_count
+FROM setter_counts sc
+JOIN max_count mc
+  ON sc.lead_count = mc.max_lead_count
+ORDER BY sc.setter_id ASC;
 
 ## Leads by Setter
 

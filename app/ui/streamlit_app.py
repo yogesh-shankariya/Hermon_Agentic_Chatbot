@@ -8,6 +8,7 @@ Run from the project root:
 from __future__ import annotations
 
 import base64
+import csv
 import html
 import json
 import re
@@ -27,8 +28,12 @@ from app.agents.sql_agent import create_sql_agent  # noqa: E402
 from app.config import get_sql_agent_settings  # noqa: E402
 
 
-DOCS_DIR = PROJECT_ROOT / "app" / "docs"
-QUESTION_MATRIX_PATH = DOCS_DIR / "lead_analytics_expected_sql.md"
+TESTING_DIR = PROJECT_ROOT / "app" / "testing"
+TESTING_INPUT_DIR = TESTING_DIR / "input"
+TESTING_OUTPUT_DIR = TESTING_DIR / "output"
+ACTUAL_OUTPUT_QUESTIONS_PATH = TESTING_OUTPUT_DIR / "lead_analytics_actual_output.csv"
+SILVER_TRUTH_QUESTIONS_PATH = TESTING_OUTPUT_DIR / "lead_analytics_silver_truth.csv"
+INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "lead_analytics_test_questions_with_guardrails.csv"
 BOT_LOGO_PATH = PROJECT_ROOT / "app" / "ui" / "assets" / "hermon_bot.svg"
 PAGE_TITLE = "Hermon Q&A Agent"
 PAGE_ICON = str(BOT_LOGO_PATH)
@@ -37,16 +42,8 @@ AGENT_CACHE_VERSION = "clean-final-answer-v3"
 COMPACT_TABLE_MAX_COLUMNS = 8
 COMPACT_TABLE_MAX_ROWS = 30
 MAX_CONTEXT_TURNS = 5
-EXAMPLE_QUESTIONS = [
-    "How many active leads do we have?",
-    "Break down active leads by exact status.",
-    "Which source has the most leads?",
-    "Which leads are overdue for follow-up?",
-    "How many leads have no owner?",
-]
 
 SQL_FENCE_RE = re.compile(r"```(?:sql)?\s*.*?```", re.IGNORECASE | re.DOTALL)
-QUESTION_ROW_RE = re.compile(r"^\| (Q\d{3}) \| ([^|]+?) \| (P\d{3}|N/A) \|", re.MULTILINE)
 SECTION_LABELS_TO_STRIP = {
     "query",
     "query used",
@@ -295,27 +292,41 @@ def get_agent(cache_version: str = AGENT_CACHE_VERSION):
 
 
 @st.cache_data(show_spinner=False)
-def load_question_matrix() -> dict[str, list[dict[str, str]]]:
-    """Load test questions from the markdown matrix used by QA."""
+def load_question_matrix() -> dict[str, Any]:
+    """Load all tested Lead Analytics questions from evaluation CSV outputs."""
 
-    if not QUESTION_MATRIX_PATH.exists():
-        return {"lead_analytics": []}
+    candidate_paths = [
+        ACTUAL_OUTPUT_QUESTIONS_PATH,
+        SILVER_TRUTH_QUESTIONS_PATH,
+        INPUT_QUESTIONS_PATH,
+    ]
 
-    markdown = QUESTION_MATRIX_PATH.read_text(encoding="utf-8")
-    questions = []
-    for match in QUESTION_ROW_RE.finditer(markdown):
-        pattern = match.group(3).strip()
-        if pattern == "N/A":
+    for path in candidate_paths:
+        if not path.exists():
             continue
 
-        questions.append(
-            {
-                "id": match.group(1),
-                "question": match.group(2).strip(),
-                "pattern": pattern,
-            }
-        )
-    return {"lead_analytics": questions}
+        questions: list[dict[str, str]] = []
+        with path.open("r", encoding="utf-8", newline="") as question_file:
+            reader = csv.DictReader(question_file)
+            for index, row in enumerate(reader, start=1):
+                question = (row.get("question") or "").strip()
+                if not question:
+                    continue
+
+                questions.append(
+                    {
+                        "id": (row.get("question_id") or f"Q{index:03d}").strip(),
+                        "category": (row.get("category") or "Lead Analytics").strip(),
+                        "question": question,
+                    }
+                )
+
+        return {
+            "lead_analytics": questions,
+            "source_file": path.name,
+        }
+
+    return {"lead_analytics": [], "source_file": ""}
 
 
 def stringify_content(content: Any) -> str:
@@ -818,8 +829,9 @@ def render_sidebar() -> None:
     memory_label = html.escape(f"Latest {MAX_CONTEXT_TURNS} Q&A turns")
     question_matrix = load_question_matrix()
     lead_questions = question_matrix.get("lead_analytics", [])
+    question_source = str(question_matrix.get("source_file") or "")
     question_labels = [
-        f"{item['id']} - {item['question']}"
+        f"{item['id']}: {item['question']}"
         for item in lead_questions
     ]
     dropdown_options = ["Choose a supported Lead Analytics question", *question_labels]
@@ -888,7 +900,9 @@ def render_sidebar() -> None:
             st.rerun()
 
         st.divider()
-        st.markdown("**Try a question**")
+        st.markdown("**Tested questions**")
+        if question_source:
+            st.caption(f"Loaded {len(lead_questions)} questions from `{question_source}`.")
         selected_question = st.selectbox(
             "Lead Analytics coverage",
             options=dropdown_options,
@@ -899,12 +913,6 @@ def render_sidebar() -> None:
         if st.button("Ask selected question", use_container_width=True, disabled=not has_selection):
             st.session_state.pending_question = lead_questions[selected_index]["question"]
             st.rerun()
-
-        with st.expander("Quick starters", expanded=False):
-            for question in EXAMPLE_QUESTIONS:
-                if st.button(question, use_container_width=True):
-                    st.session_state.pending_question = question
-                    st.rerun()
 
 
 def render_hero() -> None:
