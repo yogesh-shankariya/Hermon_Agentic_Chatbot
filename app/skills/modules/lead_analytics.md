@@ -433,6 +433,67 @@ AND l.next_touch_point_at < NOW()
 
 If the user gives a specific stale timeframe, use their timeframe instead of the default stale rule.
 
+## Previous Completed Month Lead Change
+
+Use this when the user asks:
+
+- did leads increase or decrease previous month
+- previous month growth
+- last month compared to the month before
+- did leads go up or down last month
+
+Compare the previous completed month against the month before the previous completed month.
+
+Do not compare the current month against the previous month unless the user explicitly asks for current month or month-to-date.
+
+Ensure both months are returned, even if one month has zero leads.
+
+```sql
+WITH month_range AS (
+  SELECT generate_series(
+    DATE_TRUNC('month', CURRENT_DATE)::date - INTERVAL '2 months',
+    DATE_TRUNC('month', CURRENT_DATE)::date - INTERVAL '1 month',
+    INTERVAL '1 month'
+  )::date AS month_start
+),
+monthly_counts AS (
+  SELECT
+    mr.month_start,
+    COUNT(l.id) AS lead_count
+  FROM month_range mr
+  LEFT JOIN leads l
+    ON DATE_TRUNC('month', l.created_at)::date = mr.month_start
+   AND l.clerk_org_id = :org_id
+   AND l.is_deleted = false
+   AND l.created_at >= DATE_TRUNC('month', CURRENT_DATE)::date - INTERVAL '2 months'
+   AND l.created_at < DATE_TRUNC('month', CURRENT_DATE)::date
+  GROUP BY mr.month_start
+),
+monthly_with_change AS (
+  SELECT
+    month_start,
+    lead_count,
+    LAG(lead_count) OVER (ORDER BY month_start) AS previous_month_count
+  FROM monthly_counts
+)
+SELECT
+  TO_CHAR(month_start, 'Mon YYYY') AS month,
+  lead_count,
+  previous_month_count,
+  CASE
+    WHEN previous_month_count IS NULL OR previous_month_count = 0 THEN NULL
+    ELSE ROUND((lead_count - previous_month_count) * 100.0 / previous_month_count, 2)
+  END AS pct_change,
+  CASE
+    WHEN previous_month_count IS NULL THEN 'N/A'
+    WHEN lead_count > previous_month_count THEN 'Increased'
+    WHEN lead_count < previous_month_count THEN 'Decreased'
+    ELSE 'No Change'
+  END AS trend
+FROM monthly_with_change
+ORDER BY month_start ASC;
+```
+
 ## Default List Output Rules
 
 For list-style lead queries, default output fields are:
@@ -587,7 +648,9 @@ WHERE l.clerk_org_id = :org_id
 ```sql
 SELECT
   COALESCE(ss.name, 'No Status') AS status_name,
-  COUNT(*) AS lead_count
+  COUNT(*) AS lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads,
+  ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM leads l
 LEFT JOIN sales_statuses ss
   ON ss.id = l.status_id
@@ -603,7 +666,9 @@ ORDER BY lead_count DESC, status_name ASC;
 ```sql
 SELECT
   COALESCE(CAST(ss.role AS text), 'NO_STATUS') AS status_role,
-  COUNT(*) AS lead_count
+  COUNT(*) AS lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads,
+  ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM leads l
 LEFT JOIN sales_statuses ss
   ON ss.id = l.status_id
@@ -631,13 +696,15 @@ WHERE l.clerk_org_id = :org_id
 
 ```sql
 SELECT
-  l.source,
-  COUNT(*) AS lead_count
+  COALESCE(CAST(l.source AS text), 'Unknown') AS source,
+  COUNT(*) AS lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads,
+  ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM leads l
 WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
-GROUP BY l.source
-ORDER BY lead_count DESC, l.source ASC;
+GROUP BY COALESCE(CAST(l.source AS text), 'Unknown')
+ORDER BY lead_count DESC, source ASC;
 ```
 
 ## Default Source Distribution
@@ -685,10 +752,153 @@ total AS (
 SELECT
   sc.source,
   sc.lead_count,
+  t.total_leads AS total_matching_leads,
   ROUND(sc.lead_count * 100.0 / NULLIF(t.total_leads, 0), 2) AS percentage_of_total
 FROM source_counts sc
 CROSS JOIN total t
 ORDER BY sc.lead_count DESC, sc.source ASC;
+```
+
+## Weekly Lead Trend by Source
+
+Use this when the user asks:
+
+- weekly trend by source
+- week-wise lead trend by source
+- weekly source trend
+- source-wise weekly lead trend
+- how leads changed week by week for each source
+
+This is a trend query, not only a weekly distribution query.
+
+For source value, use first-touch normalized marketing source by default:
+
+- `l.first_source_id -> marketing_sources.id`
+- display `first_ms.name`
+- fallback to `l.first_source_name`
+- fallback to `Unknown`
+
+Do not fallback to `l.source` unless the user explicitly asks for high-level source enum reporting.
+
+Use `:start_date` and `:end_date` when available.
+
+Return `previous_week_count` and `pct_change` so the final answer can show week-over-week movement by source.
+
+For SQL generation:
+
+- Keep the SQL row-based.
+- Return `week_start`, `source`, `lead_count`, `previous_week_count`, `pct_change`, and helper total columns.
+- Do not generate SQL pivot columns with hardcoded week dates.
+- Do not create one SQL column per week.
+- Do not create separate SQL columns like `2026-03-02_count` and `2026-03-02_pct_change` unless the user explicitly asks for pivot SQL.
+
+For final answer formatting:
+
+- Prefer source in rows and weeks in columns when there are 12 or fewer weeks and 20 or fewer sources.
+- Each cell should show `lead_count` and `pct_change` together when `pct_change` is available.
+- Use this cell format: `85 (+142.86%)`
+- For negative change, use this format: `41 (-51.76%)`
+- For zero change, use this format: `1 (0.00%)`
+- For the first week or when `pct_change` is unavailable, show only the count.
+- If there are more than 12 weeks, show only the latest 12 weeks unless the user explicitly asks for all weeks.
+
+```sql
+WITH weeks AS (
+  SELECT generate_series(
+    DATE_TRUNC('week', :start_date::timestamp)::date,
+    DATE_TRUNC('week', (:end_date::timestamp - INTERVAL '1 day'))::date,
+    INTERVAL '1 week'
+  )::date AS week_start
+),
+sources AS (
+  SELECT DISTINCT
+    COALESCE(
+      NULLIF(TRIM(first_ms.name), ''),
+      NULLIF(TRIM(l.first_source_name), ''),
+      'Unknown'
+    ) AS source
+  FROM leads l
+  LEFT JOIN marketing_sources first_ms
+    ON first_ms.id = l.first_source_id
+   AND first_ms.clerk_org_id = l.clerk_org_id
+  WHERE l.clerk_org_id = :org_id
+    AND l.is_deleted = false
+    AND l.created_at >= :start_date
+    AND l.created_at < :end_date
+),
+weekly_source_grid AS (
+  SELECT
+    w.week_start,
+    s.source
+  FROM weeks w
+  CROSS JOIN sources s
+),
+weekly_source_counts AS (
+  SELECT
+    DATE_TRUNC('week', l.created_at)::date AS week_start,
+    COALESCE(
+      NULLIF(TRIM(first_ms.name), ''),
+      NULLIF(TRIM(l.first_source_name), ''),
+      'Unknown'
+    ) AS source,
+    COUNT(*) AS lead_count
+  FROM leads l
+  LEFT JOIN marketing_sources first_ms
+    ON first_ms.id = l.first_source_id
+   AND first_ms.clerk_org_id = l.clerk_org_id
+  WHERE l.clerk_org_id = :org_id
+    AND l.is_deleted = false
+    AND l.created_at >= :start_date
+    AND l.created_at < :end_date
+  GROUP BY
+    DATE_TRUNC('week', l.created_at)::date,
+    COALESCE(
+      NULLIF(TRIM(first_ms.name), ''),
+      NULLIF(TRIM(l.first_source_name), ''),
+      'Unknown'
+    )
+),
+weekly_source_filled AS (
+  SELECT
+    wsg.week_start,
+    wsg.source,
+    COALESCE(wsc.lead_count, 0) AS lead_count
+  FROM weekly_source_grid wsg
+  LEFT JOIN weekly_source_counts wsc
+    ON wsc.week_start = wsg.week_start
+   AND wsc.source = wsg.source
+),
+weekly_source_trend AS (
+  SELECT
+    week_start,
+    source,
+    lead_count,
+    LAG(lead_count) OVER (
+      PARTITION BY source
+      ORDER BY week_start
+    ) AS previous_week_count
+  FROM weekly_source_filled
+),
+total AS (
+  SELECT SUM(lead_count) AS total_leads
+  FROM weekly_source_filled
+)
+SELECT
+  wst.week_start,
+  wst.source,
+  wst.lead_count,
+  wst.previous_week_count,
+  CASE
+    WHEN wst.previous_week_count IS NULL OR wst.previous_week_count = 0 THEN NULL
+    ELSE ROUND(
+      (wst.lead_count - wst.previous_week_count) * 100.0 / wst.previous_week_count,
+      2
+    )
+  END AS pct_change,
+  t.total_leads AS total_matching_leads
+FROM weekly_source_trend wst
+CROSS JOIN total t
+ORDER BY wst.week_start ASC, wst.source ASC;
 ```
 
 
@@ -700,7 +910,9 @@ Do not use this for generic source distribution or top source questions.
 ```sql
 SELECT
   COALESCE(NULLIF(TRIM(l.first_source_name), ''), 'Unknown') AS first_source_name,
-  COUNT(*) AS lead_count
+  COUNT(*) AS lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads,
+  ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM leads l
 WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
@@ -716,7 +928,9 @@ Do not use this for generic source distribution or top source questions.
 ```sql
 SELECT
   COALESCE(NULLIF(TRIM(l.last_source_name), ''), 'Unknown') AS last_source_name,
-  COUNT(*) AS lead_count
+  COUNT(*) AS lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads,
+  ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM leads l
 WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
@@ -733,7 +947,9 @@ Do not use this for generic source distribution or normalized source reporting.
 SELECT
   COALESCE(NULLIF(TRIM(l.first_source_name), ''), 'Unknown') AS first_source_name,
   COALESCE(NULLIF(TRIM(l.last_source_name), ''), 'Unknown') AS last_source_name,
-  COUNT(*) AS lead_count
+  COUNT(*) AS lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads,
+  ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM leads l
 WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
@@ -821,7 +1037,9 @@ WHERE l.clerk_org_id = :org_id
 ```sql
 SELECT
   COALESCE(NULLIF(TRIM(l.assigned_to), ''), 'Unassigned') AS assigned_to,
-  COUNT(*) AS lead_count
+  COUNT(*) AS lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads,
+  ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM leads l
 WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
@@ -863,13 +1081,16 @@ FROM setter_counts sc
 JOIN max_count mc
   ON sc.lead_count = mc.max_lead_count
 ORDER BY sc.setter_id ASC;
+```
 
 ## Leads by Setter
 
 ```sql
 SELECT
   COALESCE(NULLIF(TRIM(l.setter_id), ''), 'No Setter') AS setter_id,
-  COUNT(*) AS lead_count
+  COUNT(*) AS lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads,
+  ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM leads l
 WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
@@ -882,7 +1103,8 @@ ORDER BY lead_count DESC, setter_id ASC;
 ```sql
 SELECT
   DATE_TRUNC('day', l.created_at)::date AS lead_created_date,
-  COUNT(*) AS lead_count
+  COUNT(*) AS lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads
 FROM leads l
 WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
@@ -895,7 +1117,8 @@ ORDER BY lead_created_date ASC;
 ```sql
 SELECT
   DATE_TRUNC('day', l.created_at)::date AS lead_created_date,
-  COUNT(*) AS lead_count
+  COUNT(*) AS lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads
 FROM leads l
 WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
@@ -915,7 +1138,9 @@ Default stale rule: lead is non-terminal and either has no `next_touch_point_at`
 SELECT
   COALESCE(ss.name, 'No Status') AS status_name,
   COALESCE(CAST(ss.role AS text), 'NO_STATUS') AS status_role,
-  COUNT(*) AS stale_lead_count
+  COUNT(*) AS stale_lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads,
+  ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM leads l
 LEFT JOIN sales_statuses ss
   ON ss.id = l.status_id
@@ -948,7 +1173,9 @@ Example for a parameterized cutoff:
 SELECT
   COALESCE(ss.name, 'No Status') AS status_name,
   COALESCE(CAST(ss.role AS text), 'NO_STATUS') AS status_role,
-  COUNT(*) AS not_updated_lead_count
+  COUNT(*) AS not_updated_lead_count,
+  SUM(COUNT(*)) OVER() AS total_matching_leads,
+  ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM leads l
 LEFT JOIN sales_statuses ss
   ON ss.id = l.status_id
@@ -968,6 +1195,7 @@ Use this for "which leads are stale", "show stale leads", or "which leads need a
 
 ```sql
 SELECT
+  COUNT(*) OVER() AS total_matching_rows,
   l.id,
   COALESCE(
     NULLIF(TRIM(l.full_name), ''),
@@ -1011,6 +1239,7 @@ LIMIT 50;
 
 ```sql
 SELECT
+  COUNT(*) OVER() AS total_matching_rows,
   l.id,
   COALESCE(
     NULLIF(TRIM(l.full_name), ''),
@@ -1039,6 +1268,7 @@ LIMIT 50;
 
 ```sql
 SELECT
+  COUNT(*) OVER() AS total_matching_rows,
   l.id,
   COALESCE(
     NULLIF(TRIM(l.full_name), ''),
@@ -1069,6 +1299,7 @@ Use this only when the user explicitly asks for contact details, emails, or phon
 
 ```sql
 SELECT
+  COUNT(*) OVER() AS total_matching_rows,
   l.id,
   COALESCE(
     NULLIF(TRIM(l.full_name), ''),
