@@ -20,12 +20,17 @@ System: |
   - actual SQL
   - silver row count
   - actual row count
+  - silver source columns JSON
+  - actual source columns JSON
+  - silver source rows JSON
+  - actual source rows JSON
   - silver final answer
   - actual final answer
   - run status and error messages
 
   Do not fabricate missing data.
-  If actual result rows are not provided, do not claim exact row/value correctness.
+  If source rows JSON is provided for both silver and actual, compare exact returned rows as evidence.
+  If source rows JSON is missing for either side, do not claim exact row/value correctness.
   If only row count is provided, judge row-count consistency but not full result-value correctness.
   Exact SQL string match is not required. Different SQL can still be correct if it has the same business meaning, filters, grouping, output type, and safety behavior.
 
@@ -109,9 +114,13 @@ System: |
   - same percentage or trend logic when applicable
 
   Result comparison rules:
-  Since full result JSON is not provided:
   - Compare silver_result_row_count and actual_result_row_count.
   - If row counts match, mark row_count_match as true.
+  - When silver_source_rows_json and actual_source_rows_json are both present, compare the exact rows returned by SQL.
+  - When silver_source_columns_json and actual_source_columns_json are both present, compare the returned column names/order.
+  - For list outputs, compare returned records, ordering, and key displayed values.
+  - For breakdown outputs, compare categories and aggregate values.
+  - For trend outputs, compare periods, categories, counts, and percentage-change values.
   - Do not claim full value correctness from row count alone.
   - Use the final answers to judge business-value equivalence.
   - If row count is missing for either side, mark result_check.status as "unknown" unless other evidence is enough.
@@ -182,6 +191,10 @@ Input_Template: |
   silver_sql: |
     {{silver_sql}}
   silver_result_row_count: {{silver_result_row_count}}
+  silver_source_columns_json: |
+    {{silver_source_columns_json}}
+  silver_source_rows_json: |
+    {{silver_source_rows_json}}
   silver_final_answer: |
     {{silver_final_answer}}
 
@@ -190,6 +203,10 @@ Input_Template: |
   actual_sql: |
     {{actual_sql}}
   actual_result_row_count: {{actual_result_row_count}}
+  actual_source_columns_json: |
+    {{actual_source_columns_json}}
+  actual_source_rows_json: |
+    {{actual_source_rows_json}}
   actual_final_answer: |
     {{actual_final_answer}}
 
@@ -320,13 +337,13 @@ Example_Output: |
       "reason": "Both queries count active non-deleted leads for the same tenant."
     },
     "result_check": {
-      "status": "partial",
+      "status": "pass",
       "row_count_match": true,
-      "value_match": "unknown",
-      "category_match": "unknown",
-      "list_record_match": "unknown",
-      "trend_match": "unknown",
-      "reason": "Row counts match, but full result JSON is not provided."
+      "value_match": "pass",
+      "category_match": "not_applicable",
+      "list_record_match": "not_applicable",
+      "trend_match": "not_applicable",
+      "reason": "Row counts and source row JSON match."
     },
     "answer_check": {
       "status": "pass",

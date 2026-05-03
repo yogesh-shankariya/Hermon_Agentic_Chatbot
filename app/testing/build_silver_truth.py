@@ -1,8 +1,12 @@
-"""Build silver-truth outputs for lead analytics test questions.
+"""Build silver-truth outputs for SQL analytics test questions.
 
 Run from the project root:
 
     python -m app.testing.build_silver_truth
+
+Appointment analytics:
+
+    python -m app.testing.build_silver_truth --skill appointment_analytics
 
 The measured execution time wraps only the agent invocation for each question.
 CSV and Markdown writes happen after timing is captured.
@@ -29,16 +33,36 @@ from app.agents.sql_agent import create_sql_agent  # noqa: E402
 from app.config import get_silver_truth_settings, get_sql_agent_settings  # noqa: E402
 
 
-DEFAULT_INPUT_PATH = PROJECT_ROOT / "app" / "testing" / "input" / "lead_analytics_test_questions_with_guardrails.csv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "app" / "testing" / "output"
 DEFAULT_QUESTION_COLUMN = "question"
-DEFAULT_RUN_NAME = "lead_analytics_silver_truth"
+SKILL_PRESETS = {
+    "lead_analytics": {
+        "input_path": PROJECT_ROOT
+        / "app"
+        / "testing"
+        / "input"
+        / "lead_analytics_test_questions_with_guardrails.csv",
+        "run_name": "lead_analytics_silver_truth",
+        "title": "Lead Analytics Silver Truth",
+    },
+    "appointment_analytics": {
+        "input_path": PROJECT_ROOT
+        / "app"
+        / "testing"
+        / "input"
+        / "appointment_analytics_test_questions_with_guardrails.csv",
+        "run_name": "appointment_analytics_silver_truth",
+        "title": "Appointment Analytics Silver Truth",
+    },
+}
 
 OUTPUT_COLUMNS = [
     "generated_sql",
     "generated_params_json",
     "generated_final_answer",
     "source_row_count",
+    "source_columns_json",
+    "source_rows_json",
     "execution_seconds",
     "execution_ms",
     "run_status",
@@ -95,6 +119,10 @@ def maybe_json(value: str) -> Any | None:
         return None
 
 
+def csv_json(value: Any) -> str:
+    return json.dumps(value, default=str, ensure_ascii=False)
+
+
 def final_answer_from(messages: list[object]) -> str:
     for message in reversed(messages):
         if message_role(message) == "ai":
@@ -109,6 +137,7 @@ def extract_execution_details(messages: list[object]) -> dict[str, Any]:
         "sql": "",
         "params": "",
         "row_count": "",
+        "rows": [],
         "tool_error": "",
     }
 
@@ -137,6 +166,9 @@ def extract_execution_details(messages: list[object]) -> dict[str, Any]:
                 details["tool_error"] = str(parsed["error"])
             if "row_count" in parsed:
                 details["row_count"] = parsed.get("row_count", "")
+            if isinstance(parsed.get("rows"), list):
+                details["rows"] = parsed["rows"]
+                details["row_count"] = parsed.get("row_count", len(parsed["rows"]))
 
     return details
 
@@ -176,6 +208,10 @@ def build_output_row(
     details = extract_execution_details(messages)
     final_answer = final_answer_from(messages)
     status = "error" if error_message or details.get("tool_error") else "ok"
+    source_rows = details.get("rows")
+    if not isinstance(source_rows, list):
+        source_rows = []
+    source_columns = list(source_rows[0].keys()) if source_rows and isinstance(source_rows[0], dict) else []
 
     return {
         **input_row,
@@ -183,6 +219,8 @@ def build_output_row(
         "generated_params_json": str(details.get("params") or ""),
         "generated_final_answer": final_answer,
         "source_row_count": str(details.get("row_count") or ""),
+        "source_columns_json": csv_json(source_columns),
+        "source_rows_json": csv_json(source_rows),
         "execution_seconds": f"{elapsed_seconds:.3f}",
         "execution_ms": str(round(elapsed_seconds * 1000)),
         "run_status": status,
@@ -320,9 +358,15 @@ def append_markdown_row(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build silver-truth CSV and Markdown outputs.")
-    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT_PATH)
+    parser.add_argument(
+        "--skill",
+        choices=sorted(SKILL_PRESETS),
+        default="lead_analytics",
+        help="Use default input/output naming for a supported test matrix.",
+    )
+    parser.add_argument("--input", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--run-name", default=DEFAULT_RUN_NAME)
+    parser.add_argument("--run-name", default=None)
     parser.add_argument("--title", default=None)
     parser.add_argument("--question-column", default=DEFAULT_QUESTION_COLUMN)
     parser.add_argument("--limit", type=int, default=None)
@@ -339,11 +383,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    input_path = args.input.resolve()
+    preset = SKILL_PRESETS[args.skill]
+    input_path = (args.input or preset["input_path"]).resolve()
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    csv_output_path = output_dir / f"{args.run_name}.csv"
-    md_output_path = output_dir / f"{args.run_name}.md"
+    run_name = args.run_name or str(preset["run_name"])
+    csv_output_path = output_dir / f"{run_name}.csv"
+    md_output_path = output_dir / f"{run_name}.md"
 
     input_fieldnames, input_rows = read_input_rows(input_path)
     if args.question_column not in input_fieldnames:
@@ -371,7 +417,7 @@ def main() -> None:
         existing_rows=existing_rows,
         question_column=args.question_column,
         fresh=args.fresh,
-        title=args.title or args.run_name.replace("_", " ").title(),
+        title=args.title or str(preset["title"]),
     )
 
     settings = get_sql_agent_settings()

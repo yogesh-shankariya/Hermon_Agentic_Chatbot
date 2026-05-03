@@ -14,7 +14,7 @@ Expected answer means the raw tabular data returned by SQL/source data, not the 
 | Safety | Never generate write/admin SQL, multiple statements, `SELECT *`, hardcoded org IDs, secrets, raw payloads, or credentials. |
 | Parameters | Use named parameters such as `:org_id`, `:start_date`, `:end_date`, `:status_role`, `:status_name`, `:lead_source`, `:owner_id`, `:setter_id`, `:cutoff_date`, `:limit`, and `:search_text`. |
 | Joins | Join `sales_statuses` and `marketing_sources` with matching `clerk_org_id`. |
-| List defaults | Default list limit is `50` unless the user asks for a specific limit. |
+| List defaults | Default list limit is `20` unless the user asks for a specific limit. |
 | Contact details | Do not include email or phone unless the user explicitly asks for contact details. |
 | Owner/setter names | `assigned_to` and `setter_id` are user IDs. Do not invent names. |
 | Operational follow-up | Exclude terminal roles `WON`, `LOST`, `UNQUALIFIED`, and `CANCELED` by default for stale/overdue/no-next-touch questions. |

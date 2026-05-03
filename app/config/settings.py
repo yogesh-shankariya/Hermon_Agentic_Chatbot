@@ -69,6 +69,19 @@ def _int_env(name: str, default: int) -> int:
     return int(value)
 
 
+def _enabled_sql_skills(agent_config: dict[str, Any]) -> tuple[str, ...]:
+    configured_skills = agent_config.get("enabled_skills")
+    if configured_skills is None or configured_skills == "all":
+        from app.utils.skill_loader import load_skill_metadata
+
+        return tuple(skill.name for skill in load_skill_metadata())
+
+    if not isinstance(configured_skills, list):
+        raise RuntimeError("llm.sql_agent.enabled_skills must be 'all' or a YAML list.")
+
+    return tuple(str(skill).strip() for skill in configured_skills if str(skill).strip())
+
+
 def get_sql_agent_settings() -> SqlAgentSettings:
     """Return SQL agent settings from YAML with env overrides."""
 
@@ -89,7 +102,7 @@ def get_sql_agent_settings() -> SqlAgentSettings:
     service_tier = agent_config.get("service_tier")
     max_tool_rows = _int_env(
         "HERMON_AGENT_MAX_TOOL_ROWS",
-        int(agent_config.get("max_tool_rows", 50)),
+        int(agent_config.get("max_tool_rows", 20)),
     )
 
     return SqlAgentSettings(
@@ -100,7 +113,7 @@ def get_sql_agent_settings() -> SqlAgentSettings:
         service_tier=str(service_tier) if service_tier else None,
         default_org_id=os.getenv(default_org_id_env),
         max_tool_rows=max_tool_rows,
-        enabled_skills=tuple(agent_config.get("enabled_skills", ["lead_analytics"])),
+        enabled_skills=_enabled_sql_skills(agent_config),
         prompt_version=str(prompt_config.get("version", "1_0_0")),
     )
 

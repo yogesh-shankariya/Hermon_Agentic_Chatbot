@@ -1,17 +1,17 @@
 llm:
   max_retries: 2
 
-  # Generic SQL agent config. Add future SQL skills under enabled_skills;
-  # do not create a new prompt for every skill unless behavior truly diverges.
+  # Generic SQL agent config. By default, enabled skills come from
+  # app/skills/registry.yaml; set enabled_skills to a YAML list to restrict
+  # production to a subset.
   sql_agent:
     Model: "gpt-5.4"
-    # reasoning:
-    #   effort: "high"
+    reasoning:
+      effort: "xhigh"
     prompt_cache_key: "hermon_sql_agent_v1"
     prompt_cache_retention: "24h"
-    max_tool_rows: 50
-    enabled_skills:
-      - "lead_analytics"
+    max_tool_rows: 20
+    enabled_skills: "all"
 
 database:
   # Environment variable names are configurable so deployments can reuse this
@@ -37,4 +37,4 @@ testing:
     # Flex is lower cost but slower and can be unavailable; keep production on
     # the default service tier by leaving llm.sql_agent.service_tier unset.
     # Set to "default" to use normal processing instead of flex.
-    service_tier: "default"
+    service_tier: "flex"

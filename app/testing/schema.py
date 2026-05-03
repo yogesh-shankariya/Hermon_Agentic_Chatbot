@@ -180,16 +180,16 @@ class ResultCheck(BaseModel):
         description="True if silver and actual row counts match."
     )
     value_match: MatchStatus = Field(
-        description="Whether result values match. Use unknown if result JSON is unavailable."
+        description="Whether result values match. Use source row JSON when available; otherwise use unknown."
     )
     category_match: MatchStatus = Field(
-        description="Whether grouped categories match. Use unknown if not applicable or unavailable."
+        description="Whether grouped categories match. Use source row JSON when available; otherwise use unknown if applicable but unavailable."
     )
     list_record_match: MatchStatus = Field(
-        description="Whether list records match. Use unknown if not applicable or unavailable."
+        description="Whether list records match. Use source row JSON when available; otherwise use unknown if applicable but unavailable."
     )
     trend_match: MatchStatus = Field(
-        description="Whether trend periods/counts/percentages match. Use unknown if not applicable or unavailable."
+        description="Whether trend periods/counts/percentages match. Use source row JSON when available; otherwise use unknown if applicable but unavailable."
     )
     reason: str = Field(
         description="Short explanation of result comparison."

@@ -191,7 +191,7 @@ LAQ-189,Stale and stuck leads,Which stale leads have no next touch point?,lead_a
 LAQ-190,Stale and stuck leads,Which stale leads are overdue for follow-up?,lead_analytics,list,lead_list_table,
 LAQ-191,Stale and stuck leads,Can you list the oldest stale leads first?,lead_analytics,list,lead_list_table,
 LAQ-192,Stale and stuck leads,Show me the first 20 stale leads.,lead_analytics,list,lead_list_table,
-LAQ-193,Stale and stuck leads,Show me the first 50 stale leads.,lead_analytics,list,lead_list_table,
+LAQ-193,Stale and stuck leads,Show me up to 20 stale leads.,lead_analytics,list,lead_list_table,
 LAQ-194,Stale and stuck leads,Can you show stale leads created this month?,lead_analytics,list,lead_list_table,
 LAQ-195,Stale and stuck leads,Can you show stale leads from Calendly?,lead_analytics,list,lead_list_table,
 LAQ-196,Stale and stuck leads,Can you show stale leads from Typeform?,lead_analytics,list,lead_list_table,

@@ -1,6 +1,6 @@
 # Hermon Agentic Chatbot
 
-Streamlit-first text-to-SQL chatbot for Hermon lead analytics.
+Streamlit-first text-to-SQL chatbot for Hermon analytics.
 
 ## Hermon Q&A Agent Prototype
 
@@ -50,6 +50,6 @@ Cross-check expected SQL and tabular outputs:
 app/docs/lead_analytics_expected_sql.md
 ```
 
-The current config enables the `lead_analytics` skill. SQL is executed through
-`app.db.get_db()`, which validates read-only SQL and runs it in a read-only
-transaction.
+The default SQL agent config enables every skill listed in
+`app/skills/registry.yaml`. SQL is executed through `app.db.get_db()`, which
+validates read-only SQL and runs it in a read-only transaction.

@@ -1,4 +1,4 @@
-"""Streamlit UI for the Hermon lead analytics SQL agent.
+"""Streamlit UI for the Hermon SQL analytics agent.
 
 Run from the project root:
 
@@ -26,14 +26,18 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.agents.sql_agent import create_sql_agent  # noqa: E402
 from app.config import get_sql_agent_settings  # noqa: E402
+from app.utils.skill_loader import list_skill_metadata  # noqa: E402
 
 
 TESTING_DIR = PROJECT_ROOT / "app" / "testing"
 TESTING_INPUT_DIR = TESTING_DIR / "input"
 TESTING_OUTPUT_DIR = TESTING_DIR / "output"
-ACTUAL_OUTPUT_QUESTIONS_PATH = TESTING_OUTPUT_DIR / "lead_analytics_actual_output.csv"
-SILVER_TRUTH_QUESTIONS_PATH = TESTING_OUTPUT_DIR / "lead_analytics_silver_truth.csv"
-INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "lead_analytics_test_questions_with_guardrails.csv"
+LEAD_ACTUAL_OUTPUT_QUESTIONS_PATH = TESTING_OUTPUT_DIR / "lead_analytics_actual_output.csv"
+LEAD_SILVER_TRUTH_QUESTIONS_PATH = TESTING_OUTPUT_DIR / "lead_analytics_silver_truth.csv"
+LEAD_INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "lead_analytics_test_questions_with_guardrails.csv"
+APPOINTMENT_INPUT_QUESTIONS_PATH = (
+    TESTING_INPUT_DIR / "appointment_analytics_test_questions_with_guardrails.csv"
+)
 BOT_LOGO_PATH = PROJECT_ROOT / "app" / "ui" / "assets" / "hermon_bot.svg"
 PAGE_TITLE = "Hermon Q&A Agent"
 PAGE_ICON = str(BOT_LOGO_PATH)
@@ -293,14 +297,29 @@ def get_agent(cache_version: str = AGENT_CACHE_VERSION):
 
 @st.cache_data(show_spinner=False)
 def load_question_matrix() -> dict[str, Any]:
-    """Load all tested Lead Analytics questions from evaluation CSV outputs."""
+    """Load tested analytics questions from evaluation CSV inputs/outputs."""
 
-    candidate_paths = [
-        ACTUAL_OUTPUT_QUESTIONS_PATH,
-        SILVER_TRUTH_QUESTIONS_PATH,
-        INPUT_QUESTIONS_PATH,
-    ]
+    return {
+        "lead_analytics": load_questions_from_paths(
+            [
+                LEAD_ACTUAL_OUTPUT_QUESTIONS_PATH,
+                LEAD_SILVER_TRUTH_QUESTIONS_PATH,
+                LEAD_INPUT_QUESTIONS_PATH,
+            ],
+            default_category="Lead Analytics",
+        ),
+        "appointment_analytics": load_questions_from_paths(
+            [APPOINTMENT_INPUT_QUESTIONS_PATH],
+            default_category="Appointment Analytics",
+        ),
+    }
 
+
+def load_questions_from_paths(
+    candidate_paths: list[Path],
+    *,
+    default_category: str,
+) -> dict[str, Any]:
     for path in candidate_paths:
         if not path.exists():
             continue
@@ -316,17 +335,17 @@ def load_question_matrix() -> dict[str, Any]:
                 questions.append(
                     {
                         "id": (row.get("question_id") or f"Q{index:03d}").strip(),
-                        "category": (row.get("category") or "Lead Analytics").strip(),
+                        "category": (row.get("category") or default_category).strip(),
                         "question": question,
                     }
                 )
 
         return {
-            "lead_analytics": questions,
+            "questions": questions,
             "source_file": path.name,
         }
 
-    return {"lead_analytics": [], "source_file": ""}
+    return {"questions": [], "source_file": ""}
 
 
 def stringify_content(content: Any) -> str:
@@ -369,6 +388,19 @@ def maybe_json(value: str) -> Any | None:
         return None
 
 
+def effective_runtime_params(params_json: str | None) -> dict[str, Any] | None:
+    parsed_params = maybe_json(params_json or "{}")
+    if not isinstance(parsed_params, dict):
+        return None
+
+    settings = get_sql_agent_settings()
+    params = dict(parsed_params)
+    if settings.default_org_id:
+        params.setdefault("org_id", settings.default_org_id)
+    params.setdefault("limit", settings.max_tool_rows)
+    return params
+
+
 def format_duration(seconds: float | None) -> str:
     if seconds is None:
         return "unknown"
@@ -378,6 +410,19 @@ def format_duration(seconds: float | None) -> str:
         return f"{seconds:.2f} sec"
     minutes, remainder = divmod(seconds, 60)
     return f"{int(minutes)} min {remainder:.1f} sec"
+
+
+def readable_skill_name(skill_name: str) -> str:
+    return skill_name.replace("_", " ").title()
+
+
+def enabled_skill_summary(enabled_skills: tuple[str, ...]) -> str:
+    enabled = set(enabled_skills)
+    names = [
+        readable_skill_name(skill.name)
+        for skill in list_skill_metadata(allowed_skill_names=enabled)
+    ]
+    return ", ".join(names) if names else "No enabled skills"
 
 
 def count_tool_calls(messages: list[object]) -> int:
@@ -395,6 +440,7 @@ def extract_execution_details(messages: list[object]) -> dict[str, Any]:
     details: dict[str, Any] = {
         "sql": None,
         "params": None,
+        "effective_params": None,
         "rows": None,
         "row_count": None,
         "tool_error": None,
@@ -411,7 +457,10 @@ def extract_execution_details(messages: list[object]) -> dict[str, Any]:
 
                 if tool_name in {"run_readonly_sql", "validate_sql"} and args.get("query"):
                     details["sql"] = str(args["query"]).strip()
-                    if args.get("params_json"):
+                    if tool_name == "run_readonly_sql":
+                        details["params"] = str(args.get("params_json", "{}"))
+                        details["effective_params"] = effective_runtime_params(details["params"])
+                    elif args.get("params_json"):
                         details["params"] = args["params_json"]
 
         if message_role(message) == "tool":
@@ -423,6 +472,8 @@ def extract_execution_details(messages: list[object]) -> dict[str, Any]:
                 details["sql"] = str(parsed["sql"]).strip()
             if parsed.get("error"):
                 details["tool_error"] = str(parsed["error"])
+            if isinstance(parsed.get("effective_params"), dict):
+                details["effective_params"] = parsed["effective_params"]
             if isinstance(parsed.get("rows"), list):
                 details["rows"] = parsed["rows"]
                 details["row_count"] = parsed.get("row_count", len(parsed["rows"]))
@@ -467,6 +518,7 @@ def clean_answer_for_display(answer: str) -> str:
 def render_sql_dropdown(details: dict[str, Any]) -> None:
     sql = details.get("sql")
     params = details.get("params")
+    effective_params = details.get("effective_params")
     tool_error = details.get("tool_error")
 
     if not sql and not tool_error:
@@ -482,6 +534,9 @@ def render_sql_dropdown(details: dict[str, Any]) -> None:
                 st.json(parsed_params, expanded=False)
             else:
                 st.code(str(params), language="json")
+        if isinstance(effective_params, dict):
+            st.caption("Effective parameters")
+            st.json(effective_params, expanded=False)
         if tool_error:
             st.error(tool_error)
 
@@ -823,18 +878,53 @@ def render_turn(turn: dict[str, Any]) -> None:
         render_answer(turn)
 
 
+def render_question_picker(
+    *,
+    title: str,
+    selectbox_label: str,
+    placeholder: str,
+    questions: list[dict[str, str]],
+    source_file: str,
+    key_prefix: str,
+) -> None:
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        if source_file:
+            st.caption(f"Loaded {len(questions)} questions from `{source_file}`.")
+        else:
+            st.caption("No question CSV found.")
+
+        question_labels = [
+            f"{item['id']}: {item['question']}"
+            for item in questions
+        ]
+        dropdown_options = [placeholder, *question_labels]
+        selected_question = st.selectbox(
+            selectbox_label,
+            options=dropdown_options,
+            index=0,
+            key=f"{key_prefix}_question_select",
+        )
+        selected_index = dropdown_options.index(selected_question) - 1
+        has_selection = selected_index >= 0
+        if st.button(
+            "Ask selected question",
+            use_container_width=True,
+            disabled=not has_selection,
+            key=f"{key_prefix}_ask_question",
+        ):
+            st.session_state.pending_question = questions[selected_index]["question"]
+            st.rerun()
+
+
 def render_sidebar() -> None:
     settings = get_sql_agent_settings()
     model_label = html.escape(str(settings.model).upper())
+    skill_label = html.escape(enabled_skill_summary(settings.enabled_skills))
     memory_label = html.escape(f"Latest {MAX_CONTEXT_TURNS} Q&A turns")
     question_matrix = load_question_matrix()
-    lead_questions = question_matrix.get("lead_analytics", [])
-    question_source = str(question_matrix.get("source_file") or "")
-    question_labels = [
-        f"{item['id']}: {item['question']}"
-        for item in lead_questions
-    ]
-    dropdown_options = ["Choose a supported Lead Analytics question", *question_labels]
+    lead_question_set = question_matrix.get("lead_analytics", {})
+    appointment_question_set = question_matrix.get("appointment_analytics", {})
 
     with st.sidebar:
         st.header("Hermon Q&A Agent")
@@ -852,9 +942,9 @@ def render_sidebar() -> None:
                     </svg>
                 </div>
                 <div>
-                    <div class="sidebar-module-label">Skill module</div>
-                    <div class="sidebar-module-title">Lead Analytics</div>
-                    <div class="sidebar-module-copy">Covers lead counts, pipeline roles, exact statuses, source breakdowns, owner and setter assignment, follow-up queues, stale leads, and lead creation trends.</div>
+                    <div class="sidebar-module-label">Enabled skills</div>
+                    <div class="sidebar-module-title">{skill_label}</div>
+                    <div class="sidebar-module-copy">Loaded from the SQL skill registry and pulled in on demand before each supported analytics query.</div>
                 </div>
             </div>
             <div class="sidebar-module-card llm">
@@ -871,7 +961,7 @@ def render_sidebar() -> None:
                 <div>
                     <div class="sidebar-module-label">Current model</div>
                     <div class="sidebar-module-title">{model_label}</div>
-                    <div class="sidebar-module-copy">Translates lead questions into safe read-only SQL and returns the business answer first.</div>
+                    <div class="sidebar-module-copy">Translates supported analytics questions into safe read-only SQL and returns the business answer first.</div>
                 </div>
             </div>
             <div class="sidebar-module-card memory">
@@ -901,18 +991,23 @@ def render_sidebar() -> None:
 
         st.divider()
         st.markdown("**Tested questions**")
-        if question_source:
-            st.caption(f"Loaded {len(lead_questions)} questions from `{question_source}`.")
-        selected_question = st.selectbox(
-            "Lead Analytics coverage",
-            options=dropdown_options,
-            index=0,
+        render_question_picker(
+            title="Lead Analytics",
+            selectbox_label="Lead Analytics coverage",
+            placeholder="Choose a supported Lead Analytics question",
+            questions=lead_question_set.get("questions", []),
+            source_file=str(lead_question_set.get("source_file") or ""),
+            key_prefix="lead_analytics",
         )
-        selected_index = dropdown_options.index(selected_question) - 1
-        has_selection = selected_index >= 0
-        if st.button("Ask selected question", use_container_width=True, disabled=not has_selection):
-            st.session_state.pending_question = lead_questions[selected_index]["question"]
-            st.rerun()
+        st.markdown("")
+        render_question_picker(
+            title="Appointment Analytics",
+            selectbox_label="Appointment Analytics coverage",
+            placeholder="Choose a supported Appointment Analytics question",
+            questions=appointment_question_set.get("questions", []),
+            source_file=str(appointment_question_set.get("source_file") or ""),
+            key_prefix="appointment_analytics",
+        )
 
 
 def render_hero() -> None:
@@ -927,7 +1022,7 @@ def render_hero() -> None:
             <div>
                 <h1 class="hero-title">Hermon Q&amp;A Agent</h1>
                 <div class="hero-copy">
-                    Ask lead questions in plain English. The agent translates them into safe read-only SQL,
+                    Ask analytics questions in plain English. The agent translates them into safe read-only SQL,
                     returns the business answer first, and keeps source rows and SQL tucked away for review.
                 </div>
             </div>
@@ -953,7 +1048,7 @@ def main() -> None:
         render_turn(turn)
 
     pending_question = st.session_state.pop("pending_question", None)
-    typed_question = st.chat_input("Ask about leads, statuses, sources, owners, setters, or follow-ups")
+    typed_question = st.chat_input("Ask about leads, appointments, statuses, sources, owners, setters, or follow-ups")
     question = pending_question or typed_question
 
     if question:

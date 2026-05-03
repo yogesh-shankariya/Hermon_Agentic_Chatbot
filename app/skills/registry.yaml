@@ -6,3 +6,13 @@ skills:
       - leads
       - sales_statuses
       - marketing_sources
+
+  - name: appointment_analytics
+    description: "Use for read-only SQL analytics about appointments/booked calls/scheduled calls: appointment counts, upcoming and past appointments, completed or attended calls, appointment no-show rates, no-shows by event type/host/setter/call category/source, appointment outcome breakdowns, appointment source breakdowns, event type analysis, host and setter appointment performance, appointment trends by scheduled date, Fathom coverage for appointments, appointments missing Fathom records, Fathom call summaries/action items/objections, average call duration, AI-suggested Fathom outcomes, and applied Fathom outcomes. Do not use for lead-only counts, lead source breakdowns, stale leads, lead no-show status, missing lead owners/setters, lead creation trends, revenue, contracts, payments, invoices, refunds, subscriptions, opt-ins, UTM/traffic attribution, form answers, provider integration health, webhook troubleshooting, credentials, broad semantic theme discovery across long call text, or full single-lead 360 summaries."
+    path: modules/appointment_analytics.md
+    primary_tables:
+      - appointments
+      - appointment_event_types
+      - sales_statuses
+      - leads
+      - fathom_call_records

@@ -107,7 +107,7 @@ For aggregate analytics questions, return aggregate columns only.
 
 For list-style questions such as "which leads", select only the fields needed to answer the question, add a deterministic `ORDER BY`, and cap the result with a reasonable `LIMIT` unless the user asks for a specific limit.
 
-Default list limit: `50`.
+Default list limit: `20`.
 
 Do not include lead email or phone fields in list outputs unless the user explicitly asks for contact details.
 
@@ -543,7 +543,7 @@ Use `LIMIT :limit` when the application passes a limit.
 If the application does not pass a limit and the user does not request one, use:
 
 ```sql
-LIMIT 50
+LIMIT 20
 ```
 
 Always use deterministic ordering, such as:
@@ -1257,7 +1257,7 @@ ORDER BY
   l.updated_at ASC,
   l.created_at ASC,
   l.id ASC
-LIMIT 50;
+LIMIT 20;
 ```
 
 ## List Leads with No Owner
@@ -1286,7 +1286,7 @@ WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
   AND NULLIF(TRIM(l.assigned_to), '') IS NULL
 ORDER BY l.created_at DESC, l.id ASC
-LIMIT 50;
+LIMIT 20;
 ```
 
 ## List Leads with No Setter
@@ -1315,7 +1315,7 @@ WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
   AND NULLIF(TRIM(l.setter_id), '') IS NULL
 ORDER BY l.created_at DESC, l.id ASC
-LIMIT 50;
+LIMIT 20;
 ```
 
 ## List Leads with Contact Details
@@ -1347,7 +1347,7 @@ LEFT JOIN sales_statuses ss
 WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
 ORDER BY l.created_at DESC, l.id ASC
-LIMIT 50;
+LIMIT 20;
 ```
 
 ## Mistakes To Avoid
