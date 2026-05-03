@@ -285,7 +285,7 @@ Meaning:
 | `PARTIAL_PAYMENT` | Lead partially paid. |
 | `WON` | Converted/won. |
 | `UNQUALIFIED` | Not qualified. |
-| `FOLLOW_UP` | Needs follow-up. |
+| `FOLLOW_UP` | Lead is in the Follow Up status role. This is not the same as operationally needing follow-up action. |
 | `LOST` | Lost lead/deal. |
 
 ## `NextTouchPointType`
@@ -340,6 +340,22 @@ ss.role = 'NO_SHOW'
 If the user asks about appointment no-show rate, no-shows by appointment type, no-shows by call date, no-shows by host, or no-shows by Calendly event, do not use this skill. Use `appointment_analytics`.
 
 ## Operational Follow-Up and Stale Lead Rules
+
+## Follow-Up Meaning
+
+When the user says "need follow-up", "needs follow-up", "needing follow-up", "follow-up needed", "waiting for follow-up", or "need action", use operational follow-up logic:
+
+- exclude terminal statuses: `WON`, `LOST`, `UNQUALIFIED`, `CANCELED`
+- include leads where `l.next_touch_point_at IS NULL OR l.next_touch_point_at < NOW()`
+
+Do not use only `ss.role = 'FOLLOW_UP'` for "need follow-up" questions.
+
+Use `ss.role = 'FOLLOW_UP'` only when the user explicitly asks for "Follow Up status", "Follow Up stage", or "marked as Follow Up".
+
+Example:
+
+- "How many Calendly leads need follow-up?" -> use `next_touch_point_at` logic.
+- "How many Calendly leads are in Follow Up status?" -> use `ss.role = 'FOLLOW_UP'`.
 
 For operational questions such as:
 
@@ -780,7 +796,16 @@ For source value, use first-touch normalized marketing source by default:
 
 Do not fallback to `l.source` unless the user explicitly asks for high-level source enum reporting.
 
-Use `:start_date` and `:end_date` when available.
+Use `:start_date` and `:end_date` for weekly trend queries.
+
+Do not ask the user for a date range when they ask a generic weekly trend question.
+
+If the user does not specify a date range, still generate the SQL using `:start_date` and `:end_date`. The application must provide a default 12-week window:
+
+- `:start_date` = start of the week 12 weeks before the current week
+- `:end_date` = start of the next week, or the application-defined reporting cutoff
+
+Only ask the user for a date range if they explicitly request a custom period but the period is ambiguous.
 
 Return `previous_week_count` and `pct_change` so the final answer can show week-over-week movement by source.
 

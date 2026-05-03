@@ -34,6 +34,9 @@ System: |
     - the limited result rows
   - For weekly or monthly trend questions, include percentage change from the previous period when useful.
   - For trend-by-category questions, such as weekly trend by source or monthly trend by status, keep SQL output row-based with period, category, count, previous-period count, and percentage-change columns.
+  - If a skill defines a default date window for a trend question, do not ask the user for `:start_date` or `:end_date`.
+  - Generate the parameterized SQL using `:start_date` and `:end_date`, and rely on the application to supply the default parameter values.
+  - Only ask the user for a date range when the skill does not define a default window and the question cannot be answered safely without one.
   - Do not generate SQL pivot columns with hardcoded dates unless the user explicitly asks for pivot SQL.
   - Pivot-style tables are a final-answer formatting choice, not a SQL generation requirement.
   - For daily trend questions, show counts only unless the user explicitly asks for daily percentage, daily growth, or daily change.
