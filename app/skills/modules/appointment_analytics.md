@@ -8,29 +8,31 @@ This skill must generate SQL only. The application will execute the SQL through 
 
 ## When To Use This Skill
 
-Use `appointment_analytics` when the user asks questions like:
+Use `appointment_analytics` for read-only SQL analytics questions related to appointments, booked calls, scheduled calls, appointment outcomes, no-shows, event types, hosts, setters, call categories, and appointment-linked Fathom records.
 
-- How many appointments do we have?
-- How many calls or appointments were scheduled today, this week, this month, or during a date range?
-- How many upcoming appointments are scheduled?
-- How many past appointments do we have?
-- How many completed or attended calls do we have?
-- What is the appointment no-show rate?
-- Which event type has the highest no-show rate?
-- Which host has the most appointments?
-- Which setter booked the most appointments?
-- What is the appointment breakdown by outcome?
-- What is the appointment breakdown by call category?
-- What is the appointment breakdown by source, such as Calendly or manual?
-- Which appointments were no-shows?
-- Which appointments have no Fathom call record?
-- Which appointments have Fathom summaries?
-- Which calls have objections captured in Fathom?
-- Which calls have action items captured in Fathom?
-- What is the average call duration?
-- How many calls have AI-suggested outcomes?
-- How many Fathom outcomes were applied?
-- Which appointments have recording or transcript links, when explicitly asked?
+Use this skill for:
+
+- Appointment counts and call counts.
+- Scheduled appointment or call counts by today, week, month, or custom date range.
+- Upcoming appointment lists or counts.
+- Past appointment lists or counts.
+- Completed or attended call counts.
+- Appointment no-show counts and no-show rates.
+- No-show analysis by event type, host, setter, call category, or appointment source.
+- Appointment outcome breakdowns using appointment outcome status.
+- Appointment breakdowns by call category.
+- Appointment breakdowns by source, such as Calendly or manual.
+- Appointment event type performance and event type distribution.
+- Host performance based on appointment volume or no-show rate.
+- Setter performance based on booked appointment volume or no-show rate.
+- Lists of no-show appointments.
+- Fathom coverage analysis for past appointments.
+- Appointments missing linked Fathom call records.
+- Appointments or calls with Fathom summaries.
+- Appointment-linked Fathom objections, key points, action items, and AI rationale.
+- Average call duration and call duration analysis from Fathom records.
+- AI-suggested Fathom outcome counts and applied outcome analysis.
+- Appointment recording links, Fathom recording links, or transcript links only when explicitly requested.
 
 ## When Not To Use This Skill
 

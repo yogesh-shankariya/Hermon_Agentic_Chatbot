@@ -1,0 +1,101 @@
+question_id,category,question,expected_skill,expected_intent,expected_output,notes
+AQ001,Opt-in counts,How many opt-ins do we have in total?,acquisition_analytics,count,single_count,Count opt_in records.
+AQ002,Opt-in counts,How many form submissions did we receive this month?,acquisition_analytics,count_date_range,single_count,Use opt_ins.created_at.
+AQ003,Opt-in counts,How many opt-ins were captured today?,acquisition_analytics,count_date_range,single_count,Use opt_ins.created_at.
+AQ004,Opt-in counts,How many form submissions came in during the selected date range?,acquisition_analytics,count_date_range,single_count,Use :start_date and :end_date.
+AQ005,Opt-in counts,How many webinar opt-ins do we have?,acquisition_analytics,count_filtered,single_count,Filter opt_ins.source = WEBINAR.
+AQ006,Opt-in counts,How many Typeform submissions have been captured?,acquisition_analytics,count_filtered,single_count,Filter opt_ins.source = TYPEFORM.
+AQ007,Opt-in counts,How many landing page opt-ins were submitted this week?,acquisition_analytics,count_filtered_date_range,single_count,Filter source and created_at.
+AQ008,Unique lead counts,How many unique leads came from opt-ins?,acquisition_analytics,distinct_count,single_count,Count DISTINCT opt_ins.lead_id.
+AQ009,Unique lead counts,How many unique leads came from form submissions this month?,acquisition_analytics,distinct_count_date_range,single_count,Count distinct lead IDs using opt_ins.created_at.
+AQ010,Opt-in source breakdown,What is the opt-in breakdown by acquisition source?,acquisition_analytics,breakdown,table,Group by opt_ins.source.
+AQ011,Opt-in source breakdown,Which acquisition source generated the most opt-ins?,acquisition_analytics,ranking,table,Rank by opt-in count.
+AQ012,Opt-in source breakdown,How many unique leads came from each opt-in source?,acquisition_analytics,breakdown_distinct,table,Count distinct lead IDs per source.
+AQ013,Provider form performance,Which provider form generated the most submissions?,acquisition_analytics,ranking,table,Group by provider_form_name.
+AQ014,Provider form performance,What is the submission breakdown by provider form?,acquisition_analytics,breakdown,table,Group by provider_form_name.
+AQ015,Provider form performance,How many unique leads came from each provider form?,acquisition_analytics,breakdown_distinct,table,Count distinct lead IDs by form.
+AQ016,Provider form performance,Which forms generated submissions this week?,acquisition_analytics,breakdown_date_range,table,Use opt_ins.created_at date range.
+AQ017,Setter acquisition,Which setter is attached to the most opt-ins?,acquisition_analytics,ranking,table,Group by opt_ins.setter_id.
+AQ018,Setter acquisition,What is the opt-in breakdown by setter?,acquisition_analytics,breakdown,table,Use opt_ins.setter_id with No Setter fallback.
+AQ019,Setter acquisition,How many opt-ins have no setter attached?,acquisition_analytics,count_missing,single_count,NULL/blank setter_id.
+AQ020,Setter acquisition,Show opt-ins that do not have a setter assigned.,acquisition_analytics,list_missing,list_table,List opt-ins with missing setter.
+AQ021,Setter acquisition,Which setter generated the most unique leads from opt-ins?,acquisition_analytics,ranking_distinct,table,Count distinct lead IDs by setter.
+AQ022,UTM source,What is the UTM source breakdown for opt-ins?,acquisition_analytics,breakdown,table,Group by traffic_attributions.utm_source.
+AQ023,UTM source,Which UTM source generated the most opt-ins?,acquisition_analytics,ranking,table,Rank by opt-in count.
+AQ024,UTM source,How many unique leads came from each UTM source?,acquisition_analytics,breakdown_distinct,table,Count distinct lead IDs.
+AQ025,UTM source,What percentage of opt-ins came from each UTM source?,acquisition_analytics,breakdown_percentage,table,Include percentage of total.
+AQ026,UTM source,List opt-ins from a specific UTM source.,acquisition_analytics,list_filtered,list_table,Filter by :utm_source.
+AQ027,UTM medium,What is the UTM medium breakdown for opt-ins?,acquisition_analytics,breakdown,table,Group by utm_medium.
+AQ028,UTM medium,Which UTM medium produced the most unique leads?,acquisition_analytics,ranking_distinct,table,Count distinct lead IDs by medium.
+AQ029,UTM campaign,Which UTM campaign generated the most opt-ins?,acquisition_analytics,ranking,table,Group by utm_campaign.
+AQ030,UTM campaign,What is the opt-in breakdown by UTM campaign?,acquisition_analytics,breakdown,table,Group by utm_campaign.
+AQ031,UTM campaign,How many unique leads came from each UTM campaign?,acquisition_analytics,breakdown_distinct,table,Count distinct lead IDs.
+AQ032,UTM campaign,List opt-ins from a specific UTM campaign.,acquisition_analytics,list_filtered,list_table,Filter by :utm_campaign.
+AQ033,UTM campaign,What are the top 10 UTM campaigns by form submissions?,acquisition_analytics,ranking_limited,table,Rank campaigns by opt-in count.
+AQ034,UTM source and campaign,What is the breakdown by UTM source and UTM campaign?,acquisition_analytics,multi_dimension_breakdown,table,Group by source and campaign.
+AQ035,UTM source and campaign,Which UTM source and campaign combination generated the most opt-ins?,acquisition_analytics,multi_dimension_ranking,table,Rank source/campaign pairs.
+AQ036,UTM content,What is the UTM content breakdown for opt-ins?,acquisition_analytics,breakdown,table,Group by utm_content.
+AQ037,UTM content,Which UTM content variant generated the most unique leads?,acquisition_analytics,ranking_distinct,table,Count distinct leads by utm_content.
+AQ038,UTM term,What is the UTM term breakdown for opt-ins?,acquisition_analytics,breakdown,table,Group by utm_term.
+AQ039,UTM term,Which UTM terms are producing the most form submissions?,acquisition_analytics,ranking,table,Rank by opt-in count.
+AQ040,Landing page,Which landing page generated the most opt-ins?,acquisition_analytics,ranking,table,Group by traffic_attributions.landing_page.
+AQ041,Landing page,What is the opt-in breakdown by landing page?,acquisition_analytics,breakdown,table,Group by landing_page.
+AQ042,Landing page,How many unique leads came from each landing page?,acquisition_analytics,breakdown_distinct,table,Count distinct leads by landing page.
+AQ043,Landing page,List opt-ins from a specific landing page.,acquisition_analytics,list_filtered,list_table,Filter by :landing_page.
+AQ044,Landing page,Which landing pages had opt-ins this month?,acquisition_analytics,breakdown_date_range,table,Filter by opt_ins.created_at.
+AQ045,Referrer,Which referrer generated the most opt-ins?,acquisition_analytics,ranking,table,Group by referrer.
+AQ046,Referrer,What is the opt-in breakdown by referrer?,acquisition_analytics,breakdown,table,Group by referrer.
+AQ047,Referrer,How many unique leads came from each referrer?,acquisition_analytics,breakdown_distinct,table,Count distinct leads by referrer.
+AQ048,Referrer,List opt-ins from a specific referrer.,acquisition_analytics,list_filtered,list_table,Filter by :referrer.
+AQ049,Referrer,Which referrers sent submissions in the selected period?,acquisition_analytics,breakdown_date_range,table,Filter by opt_ins.created_at.
+AQ050,Attribution coverage,How many opt-ins have traffic attribution?,acquisition_analytics,coverage,summary_table,Count with and without traffic_attributions row.
+AQ051,Attribution coverage,What is the traffic attribution coverage percentage for opt-ins?,acquisition_analytics,coverage_percentage,summary_table,Return coverage percentage.
+AQ052,Attribution coverage,How complete is our UTM tracking across opt-ins?,acquisition_analytics,coverage_fields,summary_table,"Coverage for UTM source, medium, campaign, content, term."
+AQ053,Missing attribution,How many opt-ins are missing UTM source?,acquisition_analytics,count_missing,single_count,NULL/blank utm_source.
+AQ054,Missing attribution,How many opt-ins are missing UTM campaign?,acquisition_analytics,count_missing,single_count,NULL/blank utm_campaign.
+AQ055,Missing attribution,How many opt-ins are missing landing page?,acquisition_analytics,count_missing,single_count,NULL/blank landing_page.
+AQ056,Missing attribution,How many opt-ins are missing referrer?,acquisition_analytics,count_missing,single_count,NULL/blank referrer.
+AQ057,Missing attribution,List opt-ins with no traffic attribution record.,acquisition_analytics,list_missing,list_table,"LEFT JOIN traffic_attributions, ta.id IS NULL."
+AQ058,Missing attribution,List opt-ins missing UTM campaign.,acquisition_analytics,list_missing,list_table,Missing campaign list.
+AQ059,Missing attribution,List opt-ins missing UTM source.,acquisition_analytics,list_missing,list_table,Missing source list.
+AQ060,Missing attribution,List opt-ins missing landing page information.,acquisition_analytics,list_missing,list_table,Missing landing page list.
+AQ061,Missing attribution,Which provider forms have the most missing UTM campaign values?,acquisition_analytics,breakdown_missing,table,Group missing UTM campaign by form.
+AQ062,Form questions,What questions are being asked on forms?,acquisition_analytics,inventory,table,Question inventory.
+AQ063,Form questions,Which form questions have the most answers?,acquisition_analytics,ranking,table,Group by q.question.
+AQ064,Form questions,What is the form question inventory by provider form?,acquisition_analytics,inventory_by_form,table,Group by provider form and question.
+AQ065,Form questions,Which questions appear on a specific provider form?,acquisition_analytics,list_filtered,table,Filter by provider_form_name.
+AQ066,Form answers,What are the most common answers to a specific form question?,acquisition_analytics,answer_distribution,table,Exact question text.
+AQ067,Form answers,Show the answer distribution for questions containing a specific keyword.,acquisition_analytics,answer_distribution_partial,table,Use ILIKE question pattern.
+AQ068,Form answers,Which opt-ins answered a specific question?,acquisition_analytics,list_filtered,list_table,List opt-ins and answers.
+AQ069,Form answers,List form submissions with their question answers.,acquisition_analytics,list,list_table,Join opt_ins and opt_in_question_answers.
+AQ070,Form answers,How many answers were submitted for each form question?,acquisition_analytics,breakdown,table,Count answer rows and opt-ins.
+AQ071,Form answers,Which provider form has the highest number of answered questions?,acquisition_analytics,ranking,table,Group by provider_form_name.
+AQ072,Form answers,Show answers for a specific question during the selected date range.,acquisition_analytics,list_filtered_date_range,list_table,Use parent opt_ins.created_at.
+AQ073,Form answers,What answer values were submitted for a question containing 'budget'?,acquisition_analytics,answer_distribution_partial,table,Partial question pattern.
+AQ074,Form answers,Which submissions have a blank answer for a specific question?,acquisition_analytics,list_missing_answer,list_table,Filter q.question and blank q.answer.
+AQ075,Form answers,How many no-answer responses are there by form question?,acquisition_analytics,breakdown_missing_answer,table,Group where answer missing/blank.
+AQ076,Opt-in trends,What is the daily opt-in trend?,acquisition_analytics,daily_trend,time_series_table,Date-based counts.
+AQ077,Opt-in trends,What is the daily form submission trend for the selected period?,acquisition_analytics,daily_trend_date_range,time_series_table,Use :start_date and :end_date.
+AQ078,Opt-in trends,What is the weekly opt-in trend?,acquisition_analytics,weekly_trend,time_series_table,Default 12-week window via app.
+AQ079,Opt-in trends,What is the monthly opt-in trend?,acquisition_analytics,monthly_trend,time_series_table,Default 12-month window via app.
+AQ080,Opt-in trends,Did opt-ins increase or decrease week over week?,acquisition_analytics,weekly_trend_change,time_series_table,Include previous week and percent change.
+AQ081,Opt-in trends,Did opt-ins increase or decrease month over month?,acquisition_analytics,monthly_trend_change,time_series_table,Include previous month and percent change.
+AQ082,Trend by source,What is the weekly opt-in trend by acquisition source?,acquisition_analytics,weekly_trend_by_category,time_series_table,Group by opt_ins.source.
+AQ083,Trend by source,What is the monthly opt-in trend by acquisition source?,acquisition_analytics,monthly_trend_by_category,time_series_table,Group by opt_ins.source.
+AQ084,Trend by campaign,What is the weekly opt-in trend by UTM campaign?,acquisition_analytics,weekly_trend_by_category,time_series_table,Group by utm_campaign.
+AQ085,Trend by campaign,What is the monthly opt-in trend by UTM campaign?,acquisition_analytics,monthly_trend_by_category,time_series_table,Group by utm_campaign.
+AQ086,Trend by landing page,What is the weekly opt-in trend by landing page?,acquisition_analytics,weekly_trend_by_category,time_series_table,Group by landing_page.
+AQ087,Trend by landing page,What is the monthly opt-in trend by landing page?,acquisition_analytics,monthly_trend_by_category,time_series_table,Group by landing_page.
+AQ088,Trend by form,What is the weekly opt-in trend by provider form?,acquisition_analytics,weekly_trend_by_category,time_series_table,Group by provider_form_name.
+AQ089,Current status conversion,Which UTM campaign produced the most won leads?,acquisition_analytics,conversion_ranking,table,Use current sales_statuses.role = WON.
+AQ090,Current status conversion,What is the won lead rate by UTM campaign?,acquisition_analytics,conversion_rate,table,Unique leads and WON distinct leads.
+AQ091,Current status conversion,Which landing page has the most won leads?,acquisition_analytics,conversion_ranking,table,Group by landing_page.
+AQ092,Current status conversion,What is the won lead rate by landing page?,acquisition_analytics,conversion_rate,table,Current lead status conversion context.
+AQ093,Current status conversion,Which provider form produced the most won leads?,acquisition_analytics,conversion_ranking,table,Group by provider_form_name.
+AQ094,Current status conversion,What is the won lead rate by provider form?,acquisition_analytics,conversion_rate,table,Current lead status conversion context.
+AQ095,Current status conversion,Which opt-in source produced the most appointment-booked leads?,acquisition_analytics,status_ranking,table,Use ss.role = APPOINTMENT_BOOKED.
+AQ096,Current status conversion,What is the current lead status breakdown by UTM campaign?,acquisition_analytics,status_breakdown_by_attribute,table,Group by utm_campaign and ss.role.
+AQ097,Current status conversion,What is the current lead status breakdown by landing page?,acquisition_analytics,status_breakdown_by_attribute,table,Group by landing_page and ss.role.
+AQ098,Current status conversion,What is the current lead status breakdown by provider form?,acquisition_analytics,status_breakdown_by_attribute,table,Group by provider_form_name and ss.role.
+AQ099,Current status conversion,Which UTM source has the highest lost lead count?,acquisition_analytics,status_ranking,table,Use ss.role = LOST by utm_source.
+AQ100,Current status conversion,Which acquisition source has the most follow-up leads?,acquisition_analytics,status_ranking,table,Use ss.role = FOLLOW_UP by opt_ins.source.

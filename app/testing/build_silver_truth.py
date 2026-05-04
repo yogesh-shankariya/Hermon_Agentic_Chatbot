@@ -8,6 +8,10 @@ Appointment analytics:
 
     python -m app.testing.build_silver_truth --skill appointment_analytics
 
+Appointment analytics actual output:
+
+    python -m app.testing.build_silver_truth --skill appointment_analytics --run-type actual_output
+
 The measured execution time wraps only the agent invocation for each question.
 CSV and Markdown writes happen after timing is captured.
 Outputs are appended after every question so reruns resume from the next
@@ -35,6 +39,10 @@ from app.config import get_silver_truth_settings, get_sql_agent_settings  # noqa
 
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "app" / "testing" / "output"
 DEFAULT_QUESTION_COLUMN = "question"
+RUN_TYPE_TITLES = {
+    "silver_truth": "Silver Truth",
+    "actual_output": "Actual Output",
+}
 SKILL_PRESETS = {
     "lead_analytics": {
         "input_path": PROJECT_ROOT
@@ -42,8 +50,6 @@ SKILL_PRESETS = {
         / "testing"
         / "input"
         / "lead_analytics_test_questions_with_guardrails.csv",
-        "run_name": "lead_analytics_silver_truth",
-        "title": "Lead Analytics Silver Truth",
     },
     "appointment_analytics": {
         "input_path": PROJECT_ROOT
@@ -51,8 +57,6 @@ SKILL_PRESETS = {
         / "testing"
         / "input"
         / "appointment_analytics_test_questions_with_guardrails.csv",
-        "run_name": "appointment_analytics_silver_truth",
-        "title": "Appointment Analytics Silver Truth",
     },
 }
 
@@ -121,6 +125,18 @@ def maybe_json(value: str) -> Any | None:
 
 def csv_json(value: Any) -> str:
     return json.dumps(value, default=str, ensure_ascii=False)
+
+
+def readable_skill_name(skill_name: str) -> str:
+    return skill_name.replace("_", " ").title()
+
+
+def default_run_name(skill_name: str, run_type: str) -> str:
+    return f"{skill_name}_{run_type}"
+
+
+def default_title(skill_name: str, run_type: str) -> str:
+    return f"{readable_skill_name(skill_name)} {RUN_TYPE_TITLES[run_type]}"
 
 
 def final_answer_from(messages: list[object]) -> str:
@@ -357,12 +373,18 @@ def append_markdown_row(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build silver-truth CSV and Markdown outputs.")
+    parser = argparse.ArgumentParser(description="Build agent-run CSV and Markdown outputs.")
     parser.add_argument(
         "--skill",
         choices=sorted(SKILL_PRESETS),
         default="lead_analytics",
         help="Use default input/output naming for a supported test matrix.",
+    )
+    parser.add_argument(
+        "--run-type",
+        choices=sorted(RUN_TYPE_TITLES),
+        default="silver_truth",
+        help="Controls default output file names and Markdown title.",
     )
     parser.add_argument("--input", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
@@ -374,7 +396,7 @@ def parse_args() -> argparse.Namespace:
         "--service-tier",
         choices=["auto", "default", "flex", "priority"],
         default=None,
-        help="Override testing.silver_truth.service_tier for this run.",
+        help="Override configured testing service_tier for this run.",
     )
     parser.add_argument("--fresh", action="store_true", help="Overwrite existing output and start from row 1.")
     parser.add_argument("--retry-errors", action="store_true", help="Rerun rows previously saved with run_status=error.")
@@ -387,7 +409,7 @@ def main() -> None:
     input_path = (args.input or preset["input_path"]).resolve()
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    run_name = args.run_name or str(preset["run_name"])
+    run_name = args.run_name or default_run_name(args.skill, args.run_type)
     csv_output_path = output_dir / f"{run_name}.csv"
     md_output_path = output_dir / f"{run_name}.md"
 
@@ -417,7 +439,7 @@ def main() -> None:
         existing_rows=existing_rows,
         question_column=args.question_column,
         fresh=args.fresh,
-        title=args.title or str(preset["title"]),
+        title=args.title or default_title(args.skill, args.run_type),
     )
 
     settings = get_sql_agent_settings()

@@ -8,26 +8,28 @@ This skill must generate SQL only. The application will execute the SQL through 
 
 ## When To Use This Skill
 
-Use `lead_analytics` when the user asks questions like:
+Use `lead_analytics` for read-only SQL analytics questions related to leads, lead counts, lead statuses, pipeline roles, lead assignment, setter assignment, lead source fields, next touch points, overdue follow-ups, and stale lead analysis.
 
-- How many leads do we have?
-- How many active leads do we have?
-- How many new leads are there?
-- How many leads are won, lost, follow-up, no-show, appointment booked, or unqualified?
-- What is the lead breakdown by status?
-- What is the lead breakdown by pipeline role?
-- Which leads have no status?
-- Which leads have no owner?
-- Which leads have no setter?
-- Which leads have no next touch point?
-- Which leads need follow-up?
-- Which leads are overdue for follow-up?
-- Which leads are stale or stuck?
-- Which source has the most leads?
-- How many leads came from Calendly, Typeform, landing page, manual, webinar, newsletter, or other?
-- How many leads are assigned to each rep?
-- How many leads are assigned to each setter?
-- How many leads were created today, this week, this month, or during a specific date range?
+Use this skill for:
+
+- Total lead counts and active lead counts.
+- New lead counts based on normalized lead status role.
+- Lead counts by pipeline role, such as won, lost, follow-up, no-show, appointment booked, unqualified, partial payment, cancelled, or rescheduled.
+- Lead breakdowns by exact status name.
+- Lead breakdowns by normalized pipeline role.
+- Leads with no status.
+- Leads with no owner or assignee.
+- Leads with no setter.
+- Leads with no next touch point.
+- Leads that need operational follow-up.
+- Leads with overdue follow-ups.
+- Stale or stuck lead analysis.
+- Lead source distribution using normalized first-touch source by default.
+- Last-touch source distribution when the user explicitly asks for latest source or last source.
+- High-level lead source enum analysis, such as Calendly, Typeform, landing page, manual, webinar, newsletter, or other.
+- Lead assignment breakdown by owner or assignee.
+- Lead setter breakdown by setter.
+- Lead creation counts and trends by today, week, month, or custom date range.
 
 ## When Not To Use This Skill
 
