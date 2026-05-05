@@ -31,18 +31,19 @@ from app.utils.skill_loader import list_skill_metadata  # noqa: E402
 
 TESTING_DIR = PROJECT_ROOT / "app" / "testing"
 TESTING_INPUT_DIR = TESTING_DIR / "input"
-TESTING_OUTPUT_DIR = TESTING_DIR / "output"
-LEAD_ACTUAL_OUTPUT_QUESTIONS_PATH = TESTING_OUTPUT_DIR / "lead_analytics_actual_output.csv"
-LEAD_SILVER_TRUTH_QUESTIONS_PATH = TESTING_OUTPUT_DIR / "lead_analytics_silver_truth.csv"
-LEAD_INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "lead_analytics_test_questions_with_guardrails.csv"
-APPOINTMENT_INPUT_QUESTIONS_PATH = (
-    TESTING_INPUT_DIR / "appointment_analytics_test_questions_with_guardrails.csv"
+ACQUISITION_INPUT_QUESTIONS_PATH = (
+    TESTING_INPUT_DIR / "acquisition_analytics_clean_test_questions.csv"
 )
+APPOINTMENT_INPUT_QUESTIONS_PATH = (
+    TESTING_INPUT_DIR / "appointment_analytics_clean_test_questions.csv"
+)
+LEAD_INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "lead_analytics_clean_test_questions.csv"
+REVENUE_INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "revenue_analytics_clean_test_questions.csv"
 BOT_LOGO_PATH = PROJECT_ROOT / "app" / "ui" / "assets" / "hermon_bot.svg"
 PAGE_TITLE = "Hermon Q&A Agent"
 PAGE_ICON = str(BOT_LOGO_PATH)
 LAYOUT = "wide"
-AGENT_CACHE_VERSION = "clean-final-answer-v3"
+AGENT_CACHE_VERSION = "trend-default-dates-v1"
 COMPACT_TABLE_MAX_COLUMNS = 8
 COMPACT_TABLE_MAX_ROWS = 30
 MAX_CONTEXT_TURNS = 5
@@ -60,6 +61,36 @@ SECTION_LABELS_TO_STRIP = {
     "the sql query used",
     "tool output",
 }
+QUESTION_PICKER_CONFIGS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "lead_analytics",
+        "title": "Lead Analytics",
+        "selectbox_label": "Lead Analytics coverage",
+        "placeholder": "Choose a supported Lead Analytics question",
+        "path": LEAD_INPUT_QUESTIONS_PATH,
+    },
+    {
+        "key": "appointment_analytics",
+        "title": "Appointment Analytics",
+        "selectbox_label": "Appointment Analytics coverage",
+        "placeholder": "Choose a supported Appointment Analytics question",
+        "path": APPOINTMENT_INPUT_QUESTIONS_PATH,
+    },
+    {
+        "key": "acquisition_analytics",
+        "title": "Acquisition Analytics",
+        "selectbox_label": "Acquisition Analytics coverage",
+        "placeholder": "Choose a supported Acquisition Analytics question",
+        "path": ACQUISITION_INPUT_QUESTIONS_PATH,
+    },
+    {
+        "key": "revenue_analytics",
+        "title": "Revenue Analytics",
+        "selectbox_label": "Revenue Analytics coverage",
+        "placeholder": "Choose a supported Revenue Analytics question",
+        "path": REVENUE_INPUT_QUESTIONS_PATH,
+    },
+)
 
 
 def init_state() -> None:
@@ -297,21 +328,14 @@ def get_agent(cache_version: str = AGENT_CACHE_VERSION):
 
 @st.cache_data(show_spinner=False)
 def load_question_matrix() -> dict[str, Any]:
-    """Load tested analytics questions from evaluation CSV inputs/outputs."""
+    """Load tested analytics questions from evaluation CSV inputs."""
 
     return {
-        "lead_analytics": load_questions_from_paths(
-            [
-                LEAD_ACTUAL_OUTPUT_QUESTIONS_PATH,
-                LEAD_SILVER_TRUTH_QUESTIONS_PATH,
-                LEAD_INPUT_QUESTIONS_PATH,
-            ],
-            default_category="Lead Analytics",
-        ),
-        "appointment_analytics": load_questions_from_paths(
-            [APPOINTMENT_INPUT_QUESTIONS_PATH],
-            default_category="Appointment Analytics",
-        ),
+        config["key"]: load_questions_from_paths(
+            [config["path"]],
+            default_category=config["title"],
+        )
+        for config in QUESTION_PICKER_CONFIGS
     }
 
 
@@ -475,6 +499,7 @@ def extract_execution_details(messages: list[object]) -> dict[str, Any]:
             if isinstance(parsed.get("effective_params"), dict):
                 details["effective_params"] = parsed["effective_params"]
             if isinstance(parsed.get("rows"), list):
+                details["tool_error"] = None
                 details["rows"] = parsed["rows"]
                 details["row_count"] = parsed.get("row_count", len(parsed["rows"]))
 
@@ -527,16 +552,16 @@ def render_sql_dropdown(details: dict[str, Any]) -> None:
     with st.expander("SQL used", expanded=False):
         if sql:
             st.code(sql, language="sql")
-        if params:
+        if isinstance(effective_params, dict):
+            st.caption("Parameters")
+            st.json(effective_params, expanded=False)
+        elif params:
             parsed_params = maybe_json(str(params))
             st.caption("Parameters")
             if parsed_params is not None:
                 st.json(parsed_params, expanded=False)
             else:
                 st.code(str(params), language="json")
-        if isinstance(effective_params, dict):
-            st.caption("Effective parameters")
-            st.json(effective_params, expanded=False)
         if tool_error:
             st.error(tool_error)
 
@@ -923,8 +948,6 @@ def render_sidebar() -> None:
     skill_label = html.escape(enabled_skill_summary(settings.enabled_skills))
     memory_label = html.escape(f"Latest {MAX_CONTEXT_TURNS} Q&A turns")
     question_matrix = load_question_matrix()
-    lead_question_set = question_matrix.get("lead_analytics", {})
-    appointment_question_set = question_matrix.get("appointment_analytics", {})
 
     with st.sidebar:
         st.header("Hermon Q&A Agent")
@@ -991,23 +1014,17 @@ def render_sidebar() -> None:
 
         st.divider()
         st.markdown("**Tested questions**")
-        render_question_picker(
-            title="Lead Analytics",
-            selectbox_label="Lead Analytics coverage",
-            placeholder="Choose a supported Lead Analytics question",
-            questions=lead_question_set.get("questions", []),
-            source_file=str(lead_question_set.get("source_file") or ""),
-            key_prefix="lead_analytics",
-        )
-        st.markdown("")
-        render_question_picker(
-            title="Appointment Analytics",
-            selectbox_label="Appointment Analytics coverage",
-            placeholder="Choose a supported Appointment Analytics question",
-            questions=appointment_question_set.get("questions", []),
-            source_file=str(appointment_question_set.get("source_file") or ""),
-            key_prefix="appointment_analytics",
-        )
+        for config in QUESTION_PICKER_CONFIGS:
+            question_set = question_matrix.get(config["key"], {})
+            render_question_picker(
+                title=config["title"],
+                selectbox_label=config["selectbox_label"],
+                placeholder=config["placeholder"],
+                questions=question_set.get("questions", []),
+                source_file=str(question_set.get("source_file") or ""),
+                key_prefix=config["key"],
+            )
+            st.markdown("")
 
 
 def render_hero() -> None:
@@ -1048,7 +1065,9 @@ def main() -> None:
         render_turn(turn)
 
     pending_question = st.session_state.pop("pending_question", None)
-    typed_question = st.chat_input("Ask about leads, appointments, statuses, sources, owners, setters, or follow-ups")
+    typed_question = st.chat_input(
+        "Ask about leads, appointments, acquisition, revenue, statuses, sources, owners, setters, or follow-ups"
+    )
     question = pending_question or typed_question
 
     if question:

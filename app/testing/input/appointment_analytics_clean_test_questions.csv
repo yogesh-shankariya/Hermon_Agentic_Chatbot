@@ -1,0 +1,119 @@
+question_id,category,question,expected_skill,expected_intent,expected_output,notes
+AAQ-001,Appointment counts,How many appointments do we have in total?,appointment_analytics,count,single_sentence,Count non-deleted appointments.
+AAQ-002,Appointment counts,How many appointments were scheduled from 2026-04-01 to 2026-05-01?,appointment_analytics,count_date_range,single_sentence,Use a.schedule_time range.
+AAQ-003,Appointment counts,How many calls were scheduled from 2026-01-01 to 2026-04-01?,appointment_analytics,count_date_range,single_sentence,Use a.schedule_time range.
+AAQ-004,Appointment counts,How many appointments were created in the system from 2026-04-01 to 2026-05-01?,appointment_analytics,count_date_range,single_sentence,Use a.created_at range.
+AAQ-005,Appointment counts,How many calls were added to the system from 2026-01-01 to 2026-04-01?,appointment_analytics,count_date_range,single_sentence,Use a.created_at range.
+AAQ-006,Appointment counts,How many past appointments do we have?,appointment_analytics,count,single_sentence,Use a.schedule_time < NOW().
+AAQ-007,Appointment counts,How many completed attended calls do we have?,appointment_analytics,count,single_sentence,Past appointments with no_show = false.
+AAQ-008,Appointment counts,How many upcoming appointments are scheduled from 2026-05-05 to 2026-06-05?,appointment_analytics,count_date_range,single_sentence,Use a.schedule_time future range.
+AAQ-009,Appointment counts,How many appointments have no host assigned?,appointment_analytics,count_missing,single_sentence,Treat null and blank host_id as missing.
+AAQ-010,Appointment counts,How many appointments have no setter assigned?,appointment_analytics,count_missing,single_sentence,Treat null and blank setter_id as missing.
+AAQ-011,Appointment lists,List appointments scheduled from 2026-04-01 to 2026-05-01.,appointment_analytics,list_date_range,list_table,Use schedule_time date range and default list fields.
+AAQ-012,Appointment lists,List completed attended calls from 2026-04-01 to 2026-05-01.,appointment_analytics,list_date_range,list_table,Past in range and no_show = false.
+AAQ-013,Appointment lists,List upcoming appointments scheduled from 2026-05-05 to 2026-06-05.,appointment_analytics,list_date_range,list_table,Use future schedule_time range.
+AAQ-014,Appointment lists,List appointments that have no host assigned.,appointment_analytics,list_missing,list_table,Missing host list.
+AAQ-015,Appointment lists,List appointments that have no setter assigned.,appointment_analytics,list_missing,list_table,Missing setter list.
+AAQ-016,Appointment lists,List appointments without an outcome set.,appointment_analytics,list_missing,list_table,outcome_id is null or outcome join missing.
+AAQ-017,Appointment lists,List appointments with a linked Fathom record.,appointment_analytics,list,list_table,Use EXISTS on fathom_call_records.
+AAQ-018,Appointment lists,List past appointments that do not have a Fathom record.,appointment_analytics,list,list_table,Use NOT EXISTS against fathom_call_records.
+AAQ-019,No-show analytics,What is the appointment no-show rate?,appointment_analytics,rate,single_sentence,Use past appointments denominator.
+AAQ-020,No-show analytics,What was the appointment no-show rate from 2026-04-01 to 2026-05-01?,appointment_analytics,rate_date_range,single_sentence,Use schedule_time range and past appointments.
+AAQ-021,No-show analytics,How many past appointments were no-shows?,appointment_analytics,count,single_sentence,Use a.no_show = true and a.schedule_time < NOW().
+AAQ-022,No-show analytics,How many no-show appointments were scheduled from 2026-04-01 to 2026-05-01?,appointment_analytics,count_date_range,single_sentence,Use a.no_show = true and schedule_time range.
+AAQ-023,No-show analytics,Which event type has the highest no-show rate?,appointment_analytics,ranking,markdown_table,No-show rate by event type.
+AAQ-024,No-show analytics,Which call category has the highest no-show rate?,appointment_analytics,ranking,markdown_table,No-show rate by snapshot_call_category.
+AAQ-025,No-show analytics,Which appointment source has the highest no-show rate?,appointment_analytics,ranking,markdown_table,No-show rate by a.source.
+AAQ-026,No-show analytics,Which host has the highest appointment no-show rate?,appointment_analytics,ranking,markdown_table,Group past appointments by host_id.
+AAQ-027,No-show analytics,Which setter has the highest appointment no-show rate?,appointment_analytics,ranking,markdown_table,Group past appointments by setter_id.
+AAQ-028,No-show analytics,Show no-show rate by event type from 2026-04-01 to 2026-05-01.,appointment_analytics,breakdown_date_range,markdown_table,Group by event type within explicit range.
+AAQ-029,No-show analytics,Show no-show rate by host from 2026-04-01 to 2026-05-01.,appointment_analytics,breakdown_date_range,markdown_table,Group by host within explicit range.
+AAQ-030,No-show analytics,Show no-show rate by setter from 2026-04-01 to 2026-05-01.,appointment_analytics,breakdown_date_range,markdown_table,Group by setter within explicit range.
+AAQ-031,No-show analytics,List no-show appointments scheduled from 2026-04-01 to 2026-05-01.,appointment_analytics,list_date_range,list_table,Use a.no_show = true and date range.
+AAQ-032,No-show analytics,List recent no-show appointments.,appointment_analytics,list,list_table,Use past no-show appointments ordered by schedule_time desc.
+AAQ-033,Appointment breakdowns,What is the appointment outcome breakdown?,appointment_analytics,breakdown,markdown_table,Group by outcome.name and outcome.role.
+AAQ-034,Appointment breakdowns,Show appointment outcome breakdown from 2026-04-01 to 2026-05-01.,appointment_analytics,breakdown_date_range,markdown_table,Use a.schedule_time range.
+AAQ-035,Appointment breakdowns,What is the appointment breakdown by call category?,appointment_analytics,breakdown,markdown_table,Group by snapshot_call_category.
+AAQ-036,Appointment breakdowns,What is the appointment source breakdown?,appointment_analytics,breakdown,markdown_table,Group by a.source.
+AAQ-037,Appointment breakdowns,What is the appointment breakdown by event type?,appointment_analytics,breakdown,markdown_table,Group by snapshot_event_name fallback event_type_name.
+AAQ-038,Appointment breakdowns,Show call category breakdown from 2026-04-01 to 2026-05-01.,appointment_analytics,breakdown_date_range,markdown_table,Use schedule_time range.
+AAQ-039,Appointment breakdowns,Show appointment source breakdown from 2026-04-01 to 2026-05-01.,appointment_analytics,breakdown_date_range,markdown_table,Use schedule_time range.
+AAQ-040,Appointment breakdowns,Show event type breakdown from 2026-04-01 to 2026-05-01.,appointment_analytics,breakdown_date_range,markdown_table,Use schedule_time range.
+AAQ-041,Appointment breakdowns,Which appointment outcome is most common?,appointment_analytics,ranking,markdown_table,Rank outcomes by appointment count.
+AAQ-042,Appointment breakdowns,Which call category has the most appointments?,appointment_analytics,ranking,markdown_table,Rank snapshot_call_category.
+AAQ-043,Appointment breakdowns,Which appointment source has the most bookings?,appointment_analytics,ranking,markdown_table,Rank a.source.
+AAQ-044,Appointment breakdowns,Which event type has the most appointments?,appointment_analytics,ranking,markdown_table,Rank event type by count.
+AAQ-045,Host analytics,Which host has the most appointments?,appointment_analytics,ranking,markdown_table,Exclude missing host unless explicitly asked.
+AAQ-046,Host analytics,Show appointments by host.,appointment_analytics,breakdown,markdown_table,Group by host_id.
+AAQ-047,Host analytics,Show appointments by host from 2026-04-01 to 2026-05-01.,appointment_analytics,breakdown_date_range,markdown_table,Use schedule_time range.
+AAQ-048,Host analytics,Which host completed the most attended calls?,appointment_analytics,ranking,markdown_table,Past appointments where no_show = false grouped by host.
+AAQ-049,Host analytics,Which host has the most no-show appointments?,appointment_analytics,ranking,markdown_table,Past no-show count by host.
+AAQ-050,Host analytics,Show attended call count and no-show count by host.,appointment_analytics,breakdown,markdown_table,Return host performance counts and no-show rate.
+AAQ-051,Setter analytics,Which setter booked the most appointments?,appointment_analytics,ranking,markdown_table,Exclude missing setter unless explicitly asked.
+AAQ-052,Setter analytics,Show appointments by setter.,appointment_analytics,breakdown,markdown_table,Group by setter_id.
+AAQ-053,Setter analytics,Show appointments by setter from 2026-04-01 to 2026-05-01.,appointment_analytics,breakdown_date_range,markdown_table,Use schedule_time range.
+AAQ-054,Setter analytics,Which setter booked the most attended calls?,appointment_analytics,ranking,markdown_table,Past no_show=false by setter.
+AAQ-055,Setter analytics,Which setter has the most no-show appointments?,appointment_analytics,ranking,markdown_table,Past no-show count by setter.
+AAQ-056,Setter analytics,Show attended call count and no-show count by setter.,appointment_analytics,breakdown,markdown_table,Return setter performance counts and no-show rate.
+AAQ-057,Event type analytics,"Show event type performance with appointments, no-shows, and no-show rate.",appointment_analytics,breakdown,markdown_table,Group by historical event type.
+AAQ-058,Event type analytics,Which event type has the most attended calls?,appointment_analytics,ranking,markdown_table,Past no_show=false grouped by event type.
+AAQ-059,Event type analytics,Which event type has the most no-shows?,appointment_analytics,ranking,markdown_table,Past no_show=true grouped by event type.
+AAQ-060,Event type analytics,Show current event type catalog by call category.,appointment_analytics,breakdown,markdown_table,Use appointment_event_types current catalog.
+AAQ-061,Event type analytics,How many event types are ignored?,appointment_analytics,count,single_sentence,Use appointment_event_types.is_ignored.
+AAQ-062,Event type analytics,How many event types are marked as favourite?,appointment_analytics,count,single_sentence,Use appointment_event_types.is_favourite.
+AAQ-063,Fathom coverage,What is the Fathom coverage for past appointments?,appointment_analytics,coverage,single_sentence,Count past appointments with and without Fathom records.
+AAQ-064,Fathom coverage,What was the Fathom coverage for appointments scheduled from 2026-04-01 to 2026-05-01?,appointment_analytics,coverage_date_range,single_sentence,Use schedule_time range.
+AAQ-065,Fathom coverage,How many past appointments are missing Fathom records?,appointment_analytics,count,single_sentence,Past appointments without Fathom records.
+AAQ-066,Fathom coverage,How many appointments scheduled from 2026-04-01 to 2026-05-01 are missing Fathom records?,appointment_analytics,count_date_range,single_sentence,Use explicit previous month.
+AAQ-067,Fathom coverage,List appointments missing Fathom records.,appointment_analytics,list,list_table,Past appointments with no linked Fathom.
+AAQ-068,Fathom coverage,List appointments scheduled from 2026-04-01 to 2026-05-01 that are missing Fathom records.,appointment_analytics,list_date_range,list_table,Use schedule_time range.
+AAQ-069,Fathom coverage,Show Fathom coverage by event type.,appointment_analytics,breakdown,markdown_table,Group past appointments by event type and coverage.
+AAQ-070,Fathom coverage,Show Fathom coverage by host.,appointment_analytics,breakdown,markdown_table,Group past appointments by host.
+AAQ-071,Fathom summaries,How many Fathom calls have summaries?,appointment_analytics,count,single_sentence,Count linked Fathom records with non-empty summary.
+AAQ-072,Fathom summaries,List appointments with Fathom summaries.,appointment_analytics,list,list_table,Return summary and call context; avoid raw_payload.
+AAQ-073,Fathom summaries,List Fathom call summaries from calls started from 2026-04-01 to 2026-05-01.,appointment_analytics,list_date_range,list_table,Use f.call_started_at range.
+AAQ-074,Fathom summaries,List Fathom call summaries with key points and action items.,appointment_analytics,list,list_table,Return summary/key_points/action_items.
+AAQ-075,Fathom action items and objections,How many Fathom calls have action items?,appointment_analytics,count,single_sentence,Non-empty f.action_items.
+AAQ-076,Fathom action items and objections,How many Fathom calls have objections?,appointment_analytics,count,single_sentence,Non-empty f.objections.
+AAQ-077,Fathom action items and objections,List Fathom calls with action items.,appointment_analytics,list,list_table,Return action_items without raw payload.
+AAQ-078,Fathom action items and objections,List Fathom calls with objections.,appointment_analytics,list,list_table,Return objections without raw payload.
+AAQ-079,Fathom action items and objections,List Fathom calls that have either action items or objections.,appointment_analytics,list,list_table,OR condition for action_items/objections.
+AAQ-080,Fathom action items and objections,How many Fathom calls from 2026-04-01 to 2026-05-01 have action items?,appointment_analytics,count_date_range,single_sentence,Use f.call_started_at range.
+AAQ-081,Call duration analytics,What is the average Fathom call duration?,appointment_analytics,aggregate,single_sentence,Use linked Fathom records with duration.
+AAQ-082,Call duration analytics,What was the average Fathom call duration from 2026-04-01 to 2026-05-01?,appointment_analytics,aggregate_date_range,single_sentence,Use f.call_started_at range.
+AAQ-083,Call duration analytics,Show average call duration by event type.,appointment_analytics,breakdown,markdown_table,Join Fathom to appointments and group by event type.
+AAQ-084,Call duration analytics,Which event type has the longest average call duration?,appointment_analytics,ranking,markdown_table,Rank average duration by event type.
+AAQ-085,Call duration analytics,Show average call duration by host.,appointment_analytics,breakdown,markdown_table,Group by host_id.
+AAQ-086,Call duration analytics,Which host has the longest average call duration?,appointment_analytics,ranking,markdown_table,Rank average duration by host_id.
+AAQ-087,AI Fathom outcomes,What is the breakdown of AI-suggested Fathom outcomes?,appointment_analytics,breakdown,markdown_table,Join ai_suggested_outcome to sales_statuses.
+AAQ-088,AI Fathom outcomes,How many Fathom calls have an AI-suggested outcome?,appointment_analytics,count,single_sentence,f.ai_suggested_outcome IS NOT NULL.
+AAQ-089,AI Fathom outcomes,How many Fathom outcomes were applied?,appointment_analytics,count,single_sentence,f.outcome_applied = true.
+AAQ-090,AI Fathom outcomes,Show applied versus not-applied Fathom outcomes.,appointment_analytics,breakdown,markdown_table,Group by outcome_applied.
+AAQ-091,AI Fathom outcomes,Which AI-suggested outcome has the highest average confidence score?,appointment_analytics,ranking,markdown_table,Group by AI outcome and average confidence.
+AAQ-092,AI Fathom outcomes,List Fathom calls where the AI outcome was not applied.,appointment_analytics,list,list_table,Filter outcome_applied false or not true.
+AAQ-093,Fathom matching,How many Fathom records are not matched to any appointment?,appointment_analytics,count,single_sentence,f.appointment_id IS NULL.
+AAQ-094,Fathom matching,List unmatched Fathom records.,appointment_analytics,list,list_table,Do not expose raw_payload.
+AAQ-095,Fathom matching,Show Fathom match strategy breakdown.,appointment_analytics,breakdown,markdown_table,Group by f.match_strategy.
+AAQ-096,Fathom matching,How many Fathom records were created from 2026-04-01 to 2026-05-01?,appointment_analytics,count_date_range,single_sentence,Use f.created_at range.
+AAQ-097,Appointment trends,Show the daily appointment trend from 2026-04-01 to 2026-05-01.,appointment_analytics,daily_trend,trend_table,Use a.schedule_time by day.
+AAQ-098,Appointment trends,Show the weekly appointment trend from 2026-02-09 to 2026-05-04.,appointment_analytics,weekly_trend,trend_table,Use a.schedule_time by week.
+AAQ-099,Appointment trends,Show the monthly appointment trend from 2025-05-01 to 2026-05-01.,appointment_analytics,monthly_trend,trend_table,Use a.schedule_time by month.
+AAQ-100,Appointment trends,Show weekly appointment growth from 2026-02-09 to 2026-05-04.,appointment_analytics,weekly_trend_change,trend_table,Include percentage change.
+AAQ-101,Appointment trends,Show monthly appointment growth from 2025-05-01 to 2026-05-01.,appointment_analytics,monthly_trend_change,trend_table,Include percentage change.
+AAQ-102,Appointment trends,Show daily no-show trend from 2026-04-01 to 2026-05-01.,appointment_analytics,daily_trend,trend_table,Use a.no_show=true by day.
+AAQ-103,Appointment trends,Show weekly no-show trend from 2026-02-09 to 2026-05-04.,appointment_analytics,weekly_trend,trend_table,Use a.no_show=true by week.
+AAQ-104,Appointment trends,Show monthly no-show trend from 2025-05-01 to 2026-05-01.,appointment_analytics,monthly_trend,trend_table,Use a.no_show=true by month.
+AAQ-105,Appointment trends,Show weekly appointment trend by event type from 2026-02-09 to 2026-05-04.,appointment_analytics,weekly_trend_by_category,trend_table,Group by event type.
+AAQ-106,Appointment trends,Show monthly appointment trend by call category from 2025-05-01 to 2026-05-01.,appointment_analytics,monthly_trend_by_category,trend_table,Group by snapshot_call_category.
+AAQ-107,Appointment trends,Show weekly no-show trend by host from 2026-02-09 to 2026-05-04.,appointment_analytics,weekly_trend_by_category,trend_table,Group no-shows by host.
+AAQ-108,Appointment trends,Show monthly no-show rate by event type from 2025-05-01 to 2026-05-01.,appointment_analytics,monthly_trend_by_category,trend_table,Trend no-show rate by event type.
+AAQ-109,Business questions,Where are most appointments coming from by source?,appointment_analytics,ranking,markdown_table,Appointment source ranking.
+AAQ-110,Business questions,Which call category is driving the most booked calls?,appointment_analytics,ranking,markdown_table,Call category ranking.
+AAQ-111,Business questions,Which event type should we review because it has the highest no-show rate?,appointment_analytics,ranking,markdown_table,No-show rate by event type.
+AAQ-112,Business questions,Which host needs the most no-show follow-up?,appointment_analytics,ranking,markdown_table,No-show count by host.
+AAQ-113,Business questions,Which setter is booking the highest number of attended calls?,appointment_analytics,ranking,markdown_table,Attended calls by setter.
+AAQ-114,Business questions,Which appointments need operational attention because they are missing Fathom records?,appointment_analytics,list,list_table,List missing Fathom past appointments.
+AAQ-115,Business questions,Which calls have follow-up action items captured by Fathom?,appointment_analytics,list,list_table,List Fathom calls with action_items.
+AAQ-116,Business questions,Which calls mention objections in the Fathom record?,appointment_analytics,list,list_table,List Fathom calls with objections.
+AAQ-117,Business questions,Which appointment event types have both high volume and no-shows?,appointment_analytics,breakdown,markdown_table,Return appointment count and no-show count by event type.
+AAQ-118,Business questions,What changed in appointment volume from 2026-02-01 to 2026-05-01?,appointment_analytics,monthly_trend,trend_table,Use monthly trend over explicit previous 3 completed months.

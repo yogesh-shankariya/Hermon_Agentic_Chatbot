@@ -307,6 +307,31 @@ Use this when the user asks about follow-up channel or next action type.
 
 ## Business Interpretation Rules
 
+## Status Role Synonym Mapping
+
+When the user asks about lead status using natural language, map common wording to `sales_statuses.role`.
+
+Use these mappings:
+
+| User wording examples | Normalized status role |
+|---|---|
+| won, converted, closed won, successful leads, customers | `WON` |
+| lost, closed lost, dropped, dropped off, fall off, fell off, not converted | `LOST` |
+| follow up, follow-up, followup, follow-up status, follow up stage, marked for follow-up | `FOLLOW_UP` |
+| no show, no-show, missed call, did not attend | `NO_SHOW` |
+| appointment booked, booked call, scheduled call status | `APPOINTMENT_BOOKED` |
+| unqualified, not qualified, disqualified | `UNQUALIFIED` |
+| canceled, cancelled | `CANCELED` |
+| rescheduled, re-scheduled | `RESCHEDULED` |
+| partial payment, partly paid, partially paid | `PARTIAL_PAYMENT` |
+| new lead, fresh lead | `NEW_LEAD` |
+
+Important:
+- If the user asks for a status/stage/category, use `ss.role`.
+- If the user asks for exact pipeline labels or custom status names, use `ss.name`.
+- If the user says "needs follow-up", "need follow-up", "overdue follow-up", "pending action", or "waiting for follow-up", do not use only `ss.role = 'FOLLOW_UP'`. Use operational follow-up logic based on `next_touch_point_at`, excluding terminal statuses.
+- If the user says "fall off", first interpret it as lost/dropped leads only when the question is about status. If the wording suggests funnel leakage or drop-off analysis, route to diagnostic analysis or ask for a clearer funnel stage if required.
+
 ## New Leads
 
 When the user says "new leads" without a date range, interpret it as the normalized status role:
@@ -450,6 +475,21 @@ AND l.next_touch_point_at < NOW()
 ```
 
 If the user gives a specific stale timeframe, use their timeframe instead of the default stale rule.
+
+## Lead Trend by Pipeline Role
+
+Use this for daily, weekly, or monthly lead trends by pipeline role/status role.
+
+Use:
+- Date field: `l.created_at`
+- Role field: `sales_statuses.role`
+- Daily: `DATE_TRUNC('day', l.created_at)`
+- Weekly: `DATE_TRUNC('week', l.created_at)`
+- Monthly: `DATE_TRUNC('month', l.created_at)`
+
+For pipeline role trends, derive roles dynamically from `sales_statuses.role` in the filtered lead set. Do not hardcode role arrays unless the user explicitly asks for all canonical roles including zero-count roles.
+
+If no date range is provided, use the default trend windows from the main prompt. Do not ask the user for dates.
 
 ## Previous Completed Month Lead Change
 

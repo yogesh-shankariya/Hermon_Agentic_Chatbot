@@ -183,6 +183,7 @@ def extract_execution_details(messages: list[object]) -> dict[str, Any]:
             if "row_count" in parsed:
                 details["row_count"] = parsed.get("row_count", "")
             if isinstance(parsed.get("rows"), list):
+                details["tool_error"] = ""
                 details["rows"] = parsed["rows"]
                 details["row_count"] = parsed.get("row_count", len(parsed["rows"]))
 

@@ -1,0 +1,148 @@
+question_id,category,question,expected_skill,expected_intent,expected_output,notes
+LAQ-001,Lead counts,How many active leads do we have?,lead_analytics,count,single_sentence,Count non-deleted leads.
+LAQ-002,Lead counts,How many leads were created from 2026-04-01 to 2026-05-01?,lead_analytics,count_date_range,single_sentence,Use leads.created_at with the previous completed month.
+LAQ-003,Lead counts,How many leads were created from 2026-01-01 to 2026-04-01?,lead_analytics,count_date_range,single_sentence,Use leads.created_at over explicit quarter window.
+LAQ-004,Lead counts,How many leads were created during the previous 3 completed months from 2026-02-01 to 2026-05-01?,lead_analytics,count_date_range,single_sentence,Explicit completed-month window.
+LAQ-005,Lead counts,How many leads have no status assigned?,lead_analytics,count_missing,single_sentence,Check leads.status_id IS NULL.
+LAQ-006,Lead counts,How many leads are missing a current pipeline role?,lead_analytics,count_missing,single_sentence,Use left join to sales_statuses and treat missing role as no status.
+LAQ-007,New leads,How many leads are currently in New Lead status?,lead_analytics,count,single_sentence,Use ss.role = NEW_LEAD.
+LAQ-008,New leads,How many New Lead status leads were created from 2026-04-01 to 2026-05-01?,lead_analytics,count_date_range,single_sentence,Combine ss.role = NEW_LEAD with created_at range.
+LAQ-009,New leads,List leads that are currently in New Lead status.,lead_analytics,list,lead_list_table,Return default lead list fields without contact details.
+LAQ-010,New leads,List New Lead status leads created from 2026-04-01 to 2026-05-01.,lead_analytics,list_date_range,lead_list_table,Use ss.role = NEW_LEAD and created_at range.
+LAQ-011,Pipeline role counts,How many won leads do we have?,lead_analytics,count,single_sentence,Use ss.role = WON.
+LAQ-012,Pipeline role counts,How many lost leads do we have?,lead_analytics,count,single_sentence,Use ss.role = LOST.
+LAQ-013,Pipeline role counts,How many follow-up status leads do we have?,lead_analytics,count,single_sentence,"Use ss.role = FOLLOW_UP; status role, not operational follow-up."
+LAQ-014,Pipeline role counts,How many appointment-booked leads do we have?,lead_analytics,count,single_sentence,Use ss.role = APPOINTMENT_BOOKED.
+LAQ-015,Pipeline role counts,How many no-show leads do we have?,lead_analytics,count,single_sentence,"Lead status no-show, not appointment no-show rate."
+LAQ-016,Pipeline role counts,How many rescheduled leads do we have?,lead_analytics,count,single_sentence,Use ss.role = RESCHEDULED.
+LAQ-017,Pipeline role counts,How many canceled leads do we have?,lead_analytics,count,single_sentence,Use ss.role = CANCELED.
+LAQ-018,Pipeline role counts,How many unqualified leads do we have?,lead_analytics,count,single_sentence,Use ss.role = UNQUALIFIED.
+LAQ-019,Pipeline role counts,How many partial-payment leads do we have?,lead_analytics,count,single_sentence,Use ss.role = PARTIAL_PAYMENT.
+LAQ-020,Pipeline role counts,How many won leads were created from 2026-04-01 to 2026-05-01?,lead_analytics,count_date_range,single_sentence,Use ss.role = WON with created_at range.
+LAQ-021,Pipeline role counts,How many lost leads were created from 2026-04-01 to 2026-05-01?,lead_analytics,count_date_range,single_sentence,Use ss.role = LOST with created_at range.
+LAQ-022,Pipeline role counts,How many appointment-booked leads were created from 2026-04-01 to 2026-05-01?,lead_analytics,count_date_range,single_sentence,Use ss.role = APPOINTMENT_BOOKED with created_at range.
+LAQ-023,Pipeline role counts,How many no-show leads were created from 2026-04-01 to 2026-05-01?,lead_analytics,count_date_range,single_sentence,Use ss.role = NO_SHOW with created_at range.
+LAQ-024,Pipeline role breakdown,What is the lead breakdown by normalized pipeline role?,lead_analytics,breakdown,markdown_table,Group by sales_statuses.role with percentage share.
+LAQ-025,Pipeline role breakdown,Show the lead count by exact pipeline status name.,lead_analytics,breakdown,markdown_table,Group by sales_statuses.name.
+LAQ-026,Pipeline role breakdown,Show pipeline role breakdown for leads created from 2026-04-01 to 2026-05-01.,lead_analytics,breakdown_date_range,markdown_table,Group by role with leads.created_at range.
+LAQ-027,Pipeline role breakdown,Show exact status breakdown for leads created from 2026-04-01 to 2026-05-01.,lead_analytics,breakdown_date_range,markdown_table,Group by status name with explicit date range.
+LAQ-028,Pipeline role breakdown,Which pipeline role has the most leads?,lead_analytics,ranking,markdown_table,Rank normalized role counts.
+LAQ-029,Pipeline role breakdown,Which exact status name has the most leads?,lead_analytics,ranking,markdown_table,Rank exact sales status labels.
+LAQ-030,Pipeline role lists,List won leads.,lead_analytics,list,lead_list_table,Use ss.role = WON and default list fields.
+LAQ-031,Pipeline role lists,List lost leads.,lead_analytics,list,lead_list_table,Use ss.role = LOST and default list fields.
+LAQ-032,Pipeline role lists,List follow-up status leads.,lead_analytics,list,lead_list_table,Use ss.role = FOLLOW_UP and default list fields.
+LAQ-033,Pipeline role lists,List appointment-booked leads.,lead_analytics,list,lead_list_table,Use ss.role = APPOINTMENT_BOOKED.
+LAQ-034,Pipeline role lists,List no-show leads.,lead_analytics,list,lead_list_table,Lead status no-show list only.
+LAQ-035,Pipeline role lists,List unqualified leads.,lead_analytics,list,lead_list_table,Use ss.role = UNQUALIFIED.
+LAQ-036,Pipeline role lists,List won leads created from 2026-04-01 to 2026-05-01.,lead_analytics,list_date_range,lead_list_table,Use ss.role = WON with created_at range.
+LAQ-037,Pipeline role lists,List lost leads created from 2026-04-01 to 2026-05-01.,lead_analytics,list_date_range,lead_list_table,Use ss.role = LOST with created_at range.
+LAQ-038,Lead source,What is the default lead source breakdown?,lead_analytics,breakdown,markdown_table,Use first-touch normalized marketing source by default.
+LAQ-039,Lead source,Which source generated the most leads?,lead_analytics,ranking,markdown_table,Rank first-touch normalized source counts.
+LAQ-040,Lead source,Show default lead source breakdown for leads created from 2026-04-01 to 2026-05-01.,lead_analytics,breakdown_date_range,markdown_table,Use first-touch normalized source and created_at range.
+LAQ-041,Lead source,Which source generated the most leads from 2026-04-01 to 2026-05-01?,lead_analytics,ranking_date_range,markdown_table,Rank first-touch normalized source in explicit range.
+LAQ-042,Lead source,Show the high-level lead source category breakdown.,lead_analytics,breakdown,markdown_table,Use leads.source enum.
+LAQ-043,Lead source,Which high-level source category has the most leads?,lead_analytics,ranking,markdown_table,Rank leads.source enum values.
+LAQ-044,Lead source,Show high-level source category breakdown for leads created from 2026-04-01 to 2026-05-01.,lead_analytics,breakdown_date_range,markdown_table,Use leads.source and created_at range.
+LAQ-045,Lead source,How many leads came from Calendly source category?,lead_analytics,count,single_sentence,Use l.source = CALENDLY.
+LAQ-046,Lead source,How many leads came from Typeform source category?,lead_analytics,count,single_sentence,Use l.source = TYPEFORM.
+LAQ-047,Lead source,How many leads came from landing page source category?,lead_analytics,count,single_sentence,Use l.source = LANDING_PAGE.
+LAQ-048,Lead source,How many manually created leads do we have?,lead_analytics,count,single_sentence,Use l.source = MANUAL.
+LAQ-049,Lead source,How many webinar leads do we have?,lead_analytics,count,single_sentence,Use l.source = WEBINAR.
+LAQ-050,Lead source,How many newsletter leads do we have?,lead_analytics,count,single_sentence,Use l.source = NEWSLETTER.
+LAQ-051,Lead source,How many Calendly leads were created from 2026-04-01 to 2026-05-01?,lead_analytics,count_date_range,single_sentence,Use l.source = CALENDLY with created_at range.
+LAQ-052,Lead source,How many Typeform leads were created from 2026-04-01 to 2026-05-01?,lead_analytics,count_date_range,single_sentence,Use l.source = TYPEFORM with created_at range.
+LAQ-053,Lead source lists,List Calendly source-category leads.,lead_analytics,list,lead_list_table,Use l.source = CALENDLY and default list fields.
+LAQ-054,Lead source lists,List manually created leads.,lead_analytics,list,lead_list_table,Use l.source = MANUAL and default list fields.
+LAQ-055,Lead source lists,List Calendly source-category leads created from 2026-04-01 to 2026-05-01.,lead_analytics,list_date_range,lead_list_table,Use l.source = CALENDLY and created_at range.
+LAQ-056,First and last source,Show normalized first-touch source distribution.,lead_analytics,breakdown,markdown_table,Join first_source_id to marketing_sources.
+LAQ-057,First and last source,Show normalized last-touch source distribution.,lead_analytics,breakdown,markdown_table,Join last_source_id to marketing_sources.
+LAQ-058,First and last source,Compare raw first source name and raw last source name combinations.,lead_analytics,multi_dimension_breakdown,markdown_table,Use raw first_source_name and last_source_name only because user explicitly asks raw names.
+LAQ-059,First and last source,Which normalized last-touch source appears most often?,lead_analytics,ranking,markdown_table,Rank last-touch normalized source counts.
+LAQ-060,First and last source,Show normalized first-touch source distribution from 2026-04-01 to 2026-05-01.,lead_analytics,breakdown_date_range,markdown_table,Use first source with created_at range.
+LAQ-061,First and last source,Show normalized last-touch source distribution from 2026-04-01 to 2026-05-01.,lead_analytics,breakdown_date_range,markdown_table,Use last source with created_at range.
+LAQ-062,Source and status,Show lead count by first-touch source and pipeline role.,lead_analytics,multi_dimension_breakdown,markdown_table,Group by normalized first source and ss.role.
+LAQ-063,Source and status,Which first-touch source has the most won leads?,lead_analytics,ranking,markdown_table,Filter ss.role = WON and group by first source.
+LAQ-064,Source and status,Which first-touch source has the most lost leads?,lead_analytics,ranking,markdown_table,Filter ss.role = LOST and group by first source.
+LAQ-065,Source and status,Which first-touch source has the most follow-up status leads?,lead_analytics,ranking,markdown_table,Filter ss.role = FOLLOW_UP and group by first source.
+LAQ-066,Source and status,Which high-level source category has the most no-show leads?,lead_analytics,ranking,markdown_table,Filter ss.role = NO_SHOW and group by l.source.
+LAQ-067,Source and status,Show first-touch source and pipeline role breakdown for leads created from 2026-04-01 to 2026-05-01.,lead_analytics,multi_dimension_breakdown_date_range,markdown_table,Group by first source and role with created_at range.
+LAQ-068,Owner assignment,How many leads have no owner assigned?,lead_analytics,count_missing,single_sentence,Treat NULL and blank assigned_to as missing.
+LAQ-069,Owner assignment,List leads with no owner assigned.,lead_analytics,list_missing,lead_list_table,Use missing assigned_to logic and default list fields.
+LAQ-070,Owner assignment,Show lead count by owner ID.,lead_analytics,breakdown,markdown_table,"Group by assigned_to, using Unassigned fallback."
+LAQ-071,Owner assignment,Which owner ID has the most assigned leads?,lead_analytics,ranking,markdown_table,Exclude missing owners for top actual owner if supported.
+LAQ-072,Owner assignment,Show owner assignment breakdown for leads created from 2026-04-01 to 2026-05-01.,lead_analytics,breakdown_date_range,markdown_table,Group by assigned_to with created_at range.
+LAQ-073,Owner assignment,How many leads created from 2026-04-01 to 2026-05-01 have no owner assigned?,lead_analytics,count_missing_date_range,single_sentence,Missing assigned_to plus created_at range.
+LAQ-074,Owner and status,Show lead count by owner ID and pipeline role.,lead_analytics,multi_dimension_breakdown,markdown_table,Group by assigned_to and ss.role.
+LAQ-075,Owner and status,Which owner ID has the most won leads?,lead_analytics,ranking,markdown_table,Filter ss.role = WON and group by assigned_to.
+LAQ-076,Owner and status,Which owner ID has the most lost leads?,lead_analytics,ranking,markdown_table,Filter ss.role = LOST and group by assigned_to.
+LAQ-077,Owner and status,Which owner ID has the most follow-up status leads?,lead_analytics,ranking,markdown_table,Filter ss.role = FOLLOW_UP and group by assigned_to.
+LAQ-078,Owner and status,Which owner ID has the most leads needing operational follow-up?,lead_analytics,ranking,markdown_table,"Use operational follow-up logic, grouped by assigned_to."
+LAQ-079,Owner and status,Show owner and pipeline role breakdown for leads created from 2026-04-01 to 2026-05-01.,lead_analytics,multi_dimension_breakdown_date_range,markdown_table,Group by owner and role with explicit date range.
+LAQ-080,Setter assignment,How many leads have no setter assigned?,lead_analytics,count_missing,single_sentence,Treat NULL and blank setter_id as missing.
+LAQ-081,Setter assignment,List leads with no setter assigned.,lead_analytics,list_missing,lead_list_table,Use missing setter logic and default list fields.
+LAQ-082,Setter assignment,Show lead count by setter ID.,lead_analytics,breakdown,markdown_table,"Group by setter_id, using No Setter fallback."
+LAQ-083,Setter assignment,Which setter ID has the most leads?,lead_analytics,ranking,markdown_table,Exclude missing setter values for top actual setter.
+LAQ-084,Setter assignment,Show setter breakdown for leads created from 2026-04-01 to 2026-05-01.,lead_analytics,breakdown_date_range,markdown_table,Group by setter_id with created_at range.
+LAQ-085,Setter assignment,How many leads created from 2026-04-01 to 2026-05-01 have no setter assigned?,lead_analytics,count_missing_date_range,single_sentence,Missing setter plus created_at range.
+LAQ-086,Setter and status,Show lead count by setter ID and pipeline role.,lead_analytics,multi_dimension_breakdown,markdown_table,Group by setter_id and ss.role.
+LAQ-087,Setter and status,Which setter ID has the most won leads?,lead_analytics,ranking,markdown_table,Filter ss.role = WON and group by setter_id.
+LAQ-088,Setter and status,Which setter ID has the most appointment-booked leads?,lead_analytics,ranking,markdown_table,Filter ss.role = APPOINTMENT_BOOKED and group by setter_id.
+LAQ-089,Setter and status,Which setter ID has the most lost leads?,lead_analytics,ranking,markdown_table,Filter ss.role = LOST and group by setter_id.
+LAQ-090,Setter and status,Which setter ID has the most leads needing operational follow-up?,lead_analytics,ranking,markdown_table,Use operational follow-up logic grouped by setter_id.
+LAQ-091,Setter and status,Show setter and pipeline role breakdown for leads created from 2026-04-01 to 2026-05-01.,lead_analytics,multi_dimension_breakdown_date_range,markdown_table,Group by setter and role with date range.
+LAQ-092,Operational follow-up,How many leads need operational follow-up?,lead_analytics,count,single_sentence,Exclude terminal statuses and use missing or overdue next_touch_point_at.
+LAQ-093,Operational follow-up,List leads that need operational follow-up.,lead_analytics,list,lead_list_table,Use stale/follow-up list ordering.
+LAQ-094,Operational follow-up,How many leads have overdue next touch points?,lead_analytics,count,single_sentence,Use next_touch_point_at < NOW() and exclude terminal statuses.
+LAQ-095,Operational follow-up,List leads with overdue next touch points.,lead_analytics,list,lead_list_table,Use overdue follow-up logic.
+LAQ-096,Operational follow-up,How many non-terminal leads have no next touch point?,lead_analytics,count_missing,single_sentence,Exclude terminal statuses and check next_touch_point_at IS NULL.
+LAQ-097,Operational follow-up,List non-terminal leads with no next touch point.,lead_analytics,list_missing,lead_list_table,Use no next_touch_point_at and default list fields.
+LAQ-098,Operational follow-up,Show leads needing operational follow-up by pipeline role.,lead_analytics,breakdown,markdown_table,Use operational follow-up logic and group by ss.role.
+LAQ-099,Operational follow-up,Show leads needing operational follow-up by first-touch source.,lead_analytics,breakdown,markdown_table,Use operational follow-up logic and first source grouping.
+LAQ-100,Operational follow-up,Show leads needing operational follow-up by owner ID.,lead_analytics,breakdown,markdown_table,Use operational follow-up logic and assigned_to grouping.
+LAQ-101,Operational follow-up,Show leads needing operational follow-up by setter ID.,lead_analytics,breakdown,markdown_table,Use operational follow-up logic and setter_id grouping.
+LAQ-102,Next touch point,How many leads have a next touch point scheduled from 2026-05-05 to 2026-06-05?,lead_analytics,count_date_range,single_sentence,Use next_touch_point_at date range.
+LAQ-103,Next touch point,List leads with a next touch point scheduled from 2026-05-05 to 2026-06-05.,lead_analytics,list_date_range,lead_list_table,Use next_touch_point_at range and default list fields.
+LAQ-104,Next touch point,Show next touch point type breakdown for leads.,lead_analytics,breakdown,markdown_table,Group by next_touch_point_type.
+LAQ-105,Next touch point,Which next touch point type is most common?,lead_analytics,ranking,markdown_table,Rank next_touch_point_type counts.
+LAQ-106,Next touch point,How many leads have WhatsApp as the next touch point type?,lead_analytics,count,single_sentence,Use next_touch_point_type = WHATSAPP.
+LAQ-107,Next touch point,How many leads have proposal review as the next touch point type?,lead_analytics,count,single_sentence,Use next_touch_point_type = PROPOSAL_REVIEW.
+LAQ-108,Next touch point,How many leads have follow-up call as the next touch point type?,lead_analytics,count,single_sentence,Use next_touch_point_type = FOLLOW_UP_CALL.
+LAQ-109,Next touch point,Show next touch point type by pipeline role.,lead_analytics,multi_dimension_breakdown,markdown_table,Group by next_touch_point_type and ss.role.
+LAQ-110,Stale leads,How many stale leads do we have?,lead_analytics,count,single_sentence,Use default stale definition from skill.
+LAQ-111,Stale leads,List stale leads for review.,lead_analytics,list,lead_list_table,Use default stale definition and deterministic ordering.
+LAQ-112,Stale leads,Show stale leads by pipeline role.,lead_analytics,breakdown,markdown_table,Group default stale leads by ss.role.
+LAQ-113,Stale leads,Show stale leads by exact status name.,lead_analytics,breakdown,markdown_table,Group default stale leads by ss.name.
+LAQ-114,Stale leads,Show stale leads by first-touch source.,lead_analytics,breakdown,markdown_table,Group default stale leads by normalized first source.
+LAQ-115,Stale leads,Which owner ID has the most stale leads?,lead_analytics,ranking,markdown_table,Group stale leads by assigned_to.
+LAQ-116,Stale leads,Which setter ID has the most stale leads?,lead_analytics,ranking,markdown_table,Group stale leads by setter_id.
+LAQ-117,Activity freshness,How many non-terminal leads have not been updated since 2026-02-01?,lead_analytics,count_date_filter,single_sentence,User explicitly asks updated_at freshness; exclude terminal statuses.
+LAQ-118,Activity freshness,List non-terminal leads that have not been updated since 2026-02-01.,lead_analytics,list_date_filter,lead_list_table,Use updated_at cutoff because user explicitly asks not updated.
+LAQ-119,Activity freshness,Show non-terminal leads not updated since 2026-02-01 by pipeline role.,lead_analytics,breakdown_date_filter,markdown_table,Group by status role with explicit updated_at cutoff.
+LAQ-120,Missing data,How many leads are missing first-touch source?,lead_analytics,count_missing,single_sentence,Check first_source_id/name missing as applicable.
+LAQ-121,Missing data,How many leads are missing last-touch source?,lead_analytics,count_missing,single_sentence,Check last_source_id/name missing as applicable.
+LAQ-122,Missing data,List leads missing first-touch source.,lead_analytics,list_missing,lead_list_table,Return default list fields.
+LAQ-123,Missing data,List leads missing last-touch source.,lead_analytics,list_missing,lead_list_table,Return default list fields.
+LAQ-124,Missing data,"Show missing owner, missing setter, and missing next touch point counts.",lead_analytics,data_quality_summary,markdown_table,Data-quality aggregate summary.
+LAQ-125,Missing data,How many leads created from 2026-04-01 to 2026-05-01 are missing first-touch source?,lead_analytics,count_missing_date_range,single_sentence,Missing source with created_at range.
+LAQ-126,Missing data,How many leads created from 2026-04-01 to 2026-05-01 are missing last-touch source?,lead_analytics,count_missing_date_range,single_sentence,Missing last source with created_at range.
+LAQ-127,Missing data,List leads created from 2026-04-01 to 2026-05-01 with no status assigned.,lead_analytics,list_missing_date_range,lead_list_table,status_id IS NULL with created_at range.
+LAQ-128,Lead trends,Show the daily lead creation trend from 2026-04-01 to 2026-05-01.,lead_analytics,daily_trend,trend_table,Group leads.created_at by day.
+LAQ-129,Lead trends,Show the weekly lead creation trend from 2026-02-09 to 2026-05-04.,lead_analytics,weekly_trend,trend_table_with_short_insight,Group leads.created_at by week over explicit 12-week window.
+LAQ-130,Lead trends,Show the monthly lead creation trend from 2025-05-01 to 2026-05-01.,lead_analytics,monthly_trend,trend_table_with_short_insight,Group leads.created_at by month over explicit 12-month window.
+LAQ-131,Lead trends,Show weekly lead growth from 2026-02-09 to 2026-05-04.,lead_analytics,weekly_trend_change,trend_table_with_short_insight,Include previous-week count and percentage change.
+LAQ-132,Lead trends,Show monthly lead growth from 2025-05-01 to 2026-05-01.,lead_analytics,monthly_trend_change,trend_table_with_short_insight,Include previous-month count and percentage change.
+LAQ-133,Lead trends,Which day had the most leads created from 2026-04-01 to 2026-05-01?,lead_analytics,ranking_trend,markdown_table,Rank daily lead counts in explicit date range.
+LAQ-134,Lead trends,Which week had the most leads created from 2026-02-09 to 2026-05-04?,lead_analytics,ranking_trend,markdown_table,Rank weekly lead counts.
+LAQ-135,Lead trends,Which month had the most leads created from 2025-05-01 to 2026-05-01?,lead_analytics,ranking_trend,markdown_table,Rank monthly lead counts.
+LAQ-136,Lead trends,Did lead volume increase in April 2026 compared with March 2026?,lead_analytics,period_comparison,trend_table_with_short_insight,Compare 2026-04-01 to 2026-05-01 against 2026-03-01 to 2026-04-01.
+LAQ-137,Lead trends,Compare lead creation volume between 2026-03-01 to 2026-04-01 and 2026-04-01 to 2026-05-01.,lead_analytics,period_comparison,trend_table_with_short_insight,Two completed-month comparison.
+LAQ-138,Pipeline role trends,Show the monthly lead trend by pipeline role from 2026-02-01 to 2026-05-01.,lead_analytics,monthly_trend_by_category,trend_table_with_short_insight,Group by month and ss.role; explicit previous 3 completed months.
+LAQ-139,Pipeline role trends,Show the weekly lead trend by pipeline role from 2026-02-09 to 2026-05-04.,lead_analytics,weekly_trend_by_category,trend_table_with_short_insight,Group by week and ss.role.
+LAQ-140,Pipeline role trends,Show the monthly trend for won leads from 2025-05-01 to 2026-05-01.,lead_analytics,monthly_trend_filtered,trend_table_with_short_insight,Filter ss.role = WON and group by month.
+LAQ-141,Pipeline role trends,Show the monthly trend for lost leads from 2025-05-01 to 2026-05-01.,lead_analytics,monthly_trend_filtered,trend_table_with_short_insight,Filter ss.role = LOST and group by month.
+LAQ-142,Pipeline role trends,Show the monthly trend for follow-up status leads from 2025-05-01 to 2026-05-01.,lead_analytics,monthly_trend_filtered,trend_table_with_short_insight,Filter ss.role = FOLLOW_UP and group by month.
+LAQ-143,Source trends,Show the weekly lead trend by first-touch source from 2026-02-09 to 2026-05-04.,lead_analytics,weekly_trend_by_category,trend_table_with_short_insight,Use normalized first source and week grouping.
+LAQ-144,Source trends,Show the monthly lead trend by first-touch source from 2026-02-01 to 2026-05-01.,lead_analytics,monthly_trend_by_category,trend_table_with_short_insight,Use normalized first source and month grouping.
+LAQ-145,Source trends,Show the monthly lead trend by high-level source category from 2026-02-01 to 2026-05-01.,lead_analytics,monthly_trend_by_category,trend_table_with_short_insight,Use leads.source and month grouping.
+LAQ-146,Owner trends,Show the monthly lead trend by owner ID from 2026-02-01 to 2026-05-01.,lead_analytics,monthly_trend_by_category,trend_table_with_short_insight,Group by month and assigned_to.
+LAQ-147,Setter trends,Show the monthly lead trend by setter ID from 2026-02-01 to 2026-05-01.,lead_analytics,monthly_trend_by_category,trend_table_with_short_insight,Group by month and setter_id.
