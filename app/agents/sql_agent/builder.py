@@ -10,7 +10,11 @@ from app.config import ensure_openai_key, get_sql_agent_settings
 from app.utils.prompt_loader import load_prompt
 
 
-def create_sql_agent(*, service_tier: str | None = None):
+def create_sql_agent(
+    *,
+    service_tier: str | None = None,
+    timeout_seconds: float | None = None,
+):
     """Create a LangChain SQL agent configured with enabled SQL skills."""
 
     ensure_openai_key()
@@ -22,6 +26,8 @@ def create_sql_agent(*, service_tier: str | None = None):
     effective_service_tier = service_tier if service_tier is not None else settings.service_tier
     if effective_service_tier:
         model_kwargs["service_tier"] = effective_service_tier
+    if timeout_seconds is not None:
+        model_kwargs["timeout"] = timeout_seconds
     openai_request_kwargs = {}
     if settings.prompt_cache_key:
         openai_request_kwargs["prompt_cache_key"] = settings.prompt_cache_key

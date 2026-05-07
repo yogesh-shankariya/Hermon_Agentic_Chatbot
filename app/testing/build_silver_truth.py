@@ -24,7 +24,9 @@ import argparse
 import csv
 import json
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +41,10 @@ from app.config import get_silver_truth_settings, get_sql_agent_settings  # noqa
 
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "app" / "testing" / "output"
 DEFAULT_QUESTION_COLUMN = "question"
+DEFAULT_WORKERS = 5
+DEFAULT_TIMEOUT_SECONDS = 900.0
+DEFAULT_MAX_ATTEMPTS = 2
+DEFAULT_RETRY_BACKOFF_SECONDS = 10.0
 RUN_TYPE_TITLES = {
     "silver_truth": "Silver Truth",
     "actual_output": "Actual Output",
@@ -49,24 +55,41 @@ SKILL_PRESETS = {
         / "app"
         / "testing"
         / "input"
-        / "lead_analytics_test_questions_with_guardrails.csv",
+        / "lead_analytics_clean_test_questions.csv",
     },
     "appointment_analytics": {
         "input_path": PROJECT_ROOT
         / "app"
         / "testing"
         / "input"
-        / "appointment_analytics_test_questions_with_guardrails.csv",
+        / "appointment_analytics_clean_test_questions.csv",
+    },
+    "acquisition_analytics": {
+        "input_path": PROJECT_ROOT
+        / "app"
+        / "testing"
+        / "input"
+        / "acquisition_analytics_clean_test_questions.csv",
+    },
+    "revenue_analytics": {
+        "input_path": PROJECT_ROOT
+        / "app"
+        / "testing"
+        / "input"
+        / "revenue_analytics_clean_test_questions.csv",
     },
 }
 
 OUTPUT_COLUMNS = [
     "generated_sql",
     "generated_params_json",
+    "effective_params_json",
     "generated_final_answer",
     "source_row_count",
     "source_columns_json",
     "source_rows_json",
+    "attempt_count",
+    "attempt_errors_json",
     "execution_seconds",
     "execution_ms",
     "run_status",
@@ -75,6 +98,8 @@ OUTPUT_COLUMNS = [
     "reasoning_effort",
     "service_tier",
 ]
+
+WORKER_STATE = threading.local()
 
 
 class AgentRunError(RuntimeError):
@@ -148,10 +173,24 @@ def final_answer_from(messages: list[object]) -> str:
     return ""
 
 
+def effective_runtime_params(params_json: str | None) -> dict[str, Any] | None:
+    parsed_params = maybe_json(params_json or "{}")
+    if not isinstance(parsed_params, dict):
+        return None
+
+    settings = get_sql_agent_settings()
+    params = dict(parsed_params)
+    if settings.default_org_id:
+        params.setdefault("org_id", settings.default_org_id)
+    params.setdefault("limit", settings.max_tool_rows)
+    return params
+
+
 def extract_execution_details(messages: list[object]) -> dict[str, Any]:
     details: dict[str, Any] = {
         "sql": "",
         "params": "",
+        "effective_params": {},
         "row_count": "",
         "rows": [],
         "tool_error": "",
@@ -168,7 +207,10 @@ def extract_execution_details(messages: list[object]) -> dict[str, Any]:
 
                 if tool_name in {"run_readonly_sql", "validate_sql"} and args.get("query"):
                     details["sql"] = str(args["query"]).strip()
-                    if args.get("params_json"):
+                    if tool_name == "run_readonly_sql":
+                        details["params"] = str(args.get("params_json", "{}")).strip()
+                        details["effective_params"] = effective_runtime_params(details["params"]) or {}
+                    elif args.get("params_json"):
                         details["params"] = str(args["params_json"]).strip()
 
         if message_role(message) == "tool":
@@ -180,6 +222,8 @@ def extract_execution_details(messages: list[object]) -> dict[str, Any]:
                 details["sql"] = str(parsed["sql"]).strip()
             if parsed.get("error"):
                 details["tool_error"] = str(parsed["error"])
+            if isinstance(parsed.get("effective_params"), dict):
+                details["effective_params"] = parsed["effective_params"]
             if "row_count" in parsed:
                 details["row_count"] = parsed.get("row_count", "")
             if isinstance(parsed.get("rows"), list):
@@ -196,6 +240,19 @@ def read_input_rows(input_path: Path) -> tuple[list[str], list[dict[str, str]]]:
         if not reader.fieldnames:
             raise RuntimeError(f"CSV has no header row: {input_path}")
         return list(reader.fieldnames), list(reader)
+
+
+def get_worker_agent(*, service_tier: str, timeout_seconds: float):
+    """Return one cached agent per worker thread."""
+
+    agent_key = (service_tier, timeout_seconds)
+    if getattr(WORKER_STATE, "agent_key", None) != agent_key:
+        WORKER_STATE.agent = create_sql_agent(
+            service_tier=service_tier or None,
+            timeout_seconds=timeout_seconds,
+        )
+        WORKER_STATE.agent_key = agent_key
+    return WORKER_STATE.agent
 
 
 def run_one_question(agent: Any, question: str) -> tuple[list[object], float]:
@@ -220,6 +277,8 @@ def build_output_row(
     model: str,
     reasoning_effort: str,
     service_tier: str,
+    attempt_count: int = 1,
+    attempt_errors: list[str] | None = None,
     error_message: str = "",
 ) -> dict[str, str]:
     details = extract_execution_details(messages)
@@ -234,10 +293,13 @@ def build_output_row(
         **input_row,
         "generated_sql": str(details.get("sql") or ""),
         "generated_params_json": str(details.get("params") or ""),
+        "effective_params_json": csv_json(details.get("effective_params") or {}),
         "generated_final_answer": final_answer,
         "source_row_count": str(details.get("row_count") or ""),
         "source_columns_json": csv_json(source_columns),
         "source_rows_json": csv_json(source_rows),
+        "attempt_count": str(attempt_count),
+        "attempt_errors_json": csv_json(attempt_errors or []),
         "execution_seconds": f"{elapsed_seconds:.3f}",
         "execution_ms": str(round(elapsed_seconds * 1000)),
         "run_status": status,
@@ -245,6 +307,101 @@ def build_output_row(
         "model": model,
         "reasoning_effort": reasoning_effort,
         "service_tier": service_tier,
+    }
+
+
+def sleep_before_retry(attempt: int, retry_backoff_seconds: float) -> None:
+    delay_seconds = retry_backoff_seconds * attempt
+    if delay_seconds > 0:
+        time.sleep(delay_seconds)
+
+
+def run_question_with_retries(
+    *,
+    input_index: int,
+    total: int,
+    input_row: dict[str, str],
+    question_column: str,
+    model: str,
+    reasoning_effort: str,
+    service_tier: str,
+    timeout_seconds: float,
+    max_attempts: int,
+    retry_backoff_seconds: float,
+) -> dict[str, Any]:
+    question = input_row.get(question_column, "").strip()
+    key = row_key(input_row, question_column)
+    attempt_errors: list[str] = []
+    last_output_row: dict[str, str] | None = None
+    total_elapsed_seconds = 0.0
+
+    for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            sleep_before_retry(attempt - 1, retry_backoff_seconds)
+
+        try:
+            agent = get_worker_agent(
+                service_tier=service_tier,
+                timeout_seconds=timeout_seconds,
+            )
+            messages, elapsed_seconds = run_one_question(agent, question)
+            total_elapsed_seconds += elapsed_seconds
+            output_row = build_output_row(
+                input_row,
+                messages=messages,
+                elapsed_seconds=total_elapsed_seconds,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                service_tier=service_tier,
+                attempt_count=attempt,
+                attempt_errors=attempt_errors,
+            )
+        except AgentRunError as exc:
+            total_elapsed_seconds += exc.elapsed_seconds
+            error_message = str(exc)
+            attempt_errors.append(error_message)
+            output_row = build_output_row(
+                input_row,
+                messages=[],
+                elapsed_seconds=total_elapsed_seconds,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                service_tier=service_tier,
+                attempt_count=attempt,
+                attempt_errors=attempt_errors,
+                error_message=error_message,
+            )
+
+        last_output_row = output_row
+        if output_row.get("run_status") != "error":
+            return {
+                "input_index": input_index,
+                "total": total,
+                "key": key,
+                "output_row": output_row,
+                "failed_entry": None,
+            }
+
+        error_message = output_row.get("error_message") or "run_status=error"
+        if not attempt_errors or attempt_errors[-1] != error_message:
+            attempt_errors.append(error_message)
+            output_row["attempt_errors_json"] = csv_json(attempt_errors)
+
+    assert last_output_row is not None
+    failed_entry = build_failed_checkpoint_entry(
+        input_index=input_index,
+        key=key,
+        question_column=question_column,
+        input_row=input_row,
+        output_row=last_output_row,
+        attempt_errors=attempt_errors,
+    )
+    return {
+        "input_index": input_index,
+        "total": total,
+        "key": key,
+        "output_row": last_output_row,
+        "failed_entry": failed_entry,
     }
 
 
@@ -294,20 +451,20 @@ def initialize_csv(
 ) -> None:
     if fresh or not output_path.exists() or output_path.stat().st_size == 0:
         with output_path.open("w", encoding="utf-8", newline="") as output_file:
-            writer = csv.DictWriter(output_file, fieldnames=fieldnames)
+            writer = csv.DictWriter(output_file, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
         return
 
     if read_csv_header(output_path) != fieldnames:
         with output_path.open("w", encoding="utf-8", newline="") as output_file:
-            writer = csv.DictWriter(output_file, fieldnames=fieldnames)
+            writer = csv.DictWriter(output_file, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(existing_rows)
 
 
 def append_csv_row(output_path: Path, fieldnames: list[str], row: dict[str, str]) -> None:
     with output_path.open("a", encoding="utf-8", newline="") as output_file:
-        writer = csv.DictWriter(output_file, fieldnames=fieldnames)
+        writer = csv.DictWriter(output_file, fieldnames=fieldnames, extrasaction="ignore")
         writer.writerow(row)
 
 
@@ -373,6 +530,86 @@ def append_markdown_row(
         output_file.write(markdown_block(row, index=index, question_column=question_column))
 
 
+def default_failed_checkpoint_path(output_dir: Path, run_name: str) -> Path:
+    return output_dir / f"{run_name}_failed_checkpoint.json"
+
+
+def read_failed_checkpoint(path: Path) -> list[dict[str, Any]]:
+    if not path.exists() or path.stat().st_size == 0:
+        return []
+
+    with path.open("r", encoding="utf-8") as checkpoint_file:
+        payload = json.load(checkpoint_file)
+
+    failures = payload.get("failures", []) if isinstance(payload, dict) else []
+    if not isinstance(failures, list):
+        raise RuntimeError(f"Invalid failed checkpoint format: {path}")
+    return [failure for failure in failures if isinstance(failure, dict)]
+
+
+def write_failed_checkpoint(
+    path: Path,
+    *,
+    failures: list[dict[str, Any]],
+    input_path: Path,
+    question_column: str,
+    run_name: str,
+) -> None:
+    payload = {
+        "run_name": run_name,
+        "input_path": str(input_path),
+        "question_column": question_column,
+        "updated_at_epoch": time.time(),
+        "failure_count": len(failures),
+        "failures": failures,
+    }
+    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def build_failed_checkpoint_entry(
+    *,
+    input_index: int,
+    key: str,
+    question_column: str,
+    input_row: dict[str, str],
+    output_row: dict[str, str],
+    attempt_errors: list[str],
+) -> dict[str, Any]:
+    return {
+        "input_index": input_index,
+        "key": key,
+        "question": input_row.get(question_column, ""),
+        "input_row": input_row,
+        "run_status": output_row.get("run_status", ""),
+        "error_message": output_row.get("error_message", ""),
+        "attempt_count": output_row.get("attempt_count", ""),
+        "attempt_errors": attempt_errors,
+        "output_row": output_row,
+    }
+
+
+def input_rows_from_failed_checkpoint(
+    failures: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for failure in failures:
+        input_row = failure.get("input_row")
+        if isinstance(input_row, dict):
+            rows.append({str(key): str(value) for key, value in input_row.items()})
+    return rows
+
+
+def failed_entries_by_key(failures: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    entries: dict[str, dict[str, Any]] = {}
+    for failure in failures:
+        key = str(failure.get("key") or "").strip()
+        if key:
+            entries[key] = failure
+    return entries
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build agent-run CSV and Markdown outputs.")
     parser.add_argument(
@@ -394,6 +631,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--question-column", default=DEFAULT_QUESTION_COLUMN)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKERS,
+        help="Number of questions to run in parallel.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help="Model request timeout per attempt.",
+    )
+    parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=DEFAULT_MAX_ATTEMPTS,
+        help="Total attempts per question, including the first attempt.",
+    )
+    parser.add_argument(
+        "--retry-backoff-seconds",
+        type=float,
+        default=DEFAULT_RETRY_BACKOFF_SECONDS,
+        help="Backoff before retries. Second retry waits 2x this value, and so on.",
+    )
+    parser.add_argument(
+        "--failed-checkpoint",
+        type=Path,
+        default=None,
+        help="Path for failed-question checkpoint JSON.",
+    )
+    parser.add_argument(
+        "--failed-only",
+        action="store_true",
+        help="Run only rows stored in the failed checkpoint JSON.",
+    )
+    parser.add_argument(
         "--service-tier",
         choices=["auto", "default", "flex", "priority"],
         default=None,
@@ -406,6 +678,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.workers < 1:
+        raise RuntimeError("--workers must be at least 1.")
+    if args.timeout_seconds <= 0:
+        raise RuntimeError("--timeout-seconds must be greater than zero.")
+    if args.max_attempts < 1:
+        raise RuntimeError("--max-attempts must be at least 1.")
+    if args.retry_backoff_seconds < 0:
+        raise RuntimeError("--retry-backoff-seconds cannot be negative.")
+
     preset = SKILL_PRESETS[args.skill]
     input_path = (args.input or preset["input_path"]).resolve()
     output_dir = args.output_dir.resolve()
@@ -413,10 +694,23 @@ def main() -> None:
     run_name = args.run_name or default_run_name(args.skill, args.run_type)
     csv_output_path = output_dir / f"{run_name}.csv"
     md_output_path = output_dir / f"{run_name}.md"
+    failed_checkpoint_path = (
+        args.failed_checkpoint.resolve()
+        if args.failed_checkpoint
+        else default_failed_checkpoint_path(output_dir, run_name)
+    )
+    failed_checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
     input_fieldnames, input_rows = read_input_rows(input_path)
     if args.question_column not in input_fieldnames:
         raise RuntimeError(f"Question column '{args.question_column}' not found in {input_path}")
+
+    checkpoint_failures = read_failed_checkpoint(failed_checkpoint_path)
+    if args.failed_only:
+        input_rows = input_rows_from_failed_checkpoint(checkpoint_failures)
+        if not input_rows:
+            print(f"No failed rows found in checkpoint: {failed_checkpoint_path}")
+
     if args.limit is not None:
         input_rows = input_rows[: args.limit]
     output_fieldnames = input_fieldnames + [
@@ -427,7 +721,7 @@ def main() -> None:
     skip_keys = completed_keys(
         existing_rows,
         question_column=args.question_column,
-        retry_errors=args.retry_errors,
+        retry_errors=args.retry_errors or args.failed_only,
     )
     initialize_csv(
         csv_output_path,
@@ -452,48 +746,118 @@ def main() -> None:
     if service_tier is None:
         service_tier = silver_truth_settings.service_tier or ""
 
-    agent = create_sql_agent(service_tier=service_tier or None)
-    output_index = len(existing_rows)
+    if args.failed_only or args.limit is not None:
+        failure_by_key = failed_entries_by_key(checkpoint_failures)
+    else:
+        failure_by_key: dict[str, dict[str, Any]] = {}
 
+    output_index = len(existing_rows)
+    runnable_rows: list[tuple[int, dict[str, str]]] = []
     for index, input_row in enumerate(input_rows, start=1):
         key = row_key(input_row, args.question_column)
         if key in skip_keys:
             print(f"[{index}/{len(input_rows)}] Skipping already recorded: {key}")
             continue
 
-        question = input_row.get(args.question_column, "").strip()
-        print(f"[{index}/{len(input_rows)}] {question}")
-        try:
-            messages, elapsed_seconds = run_one_question(agent, question)
-            output_row = build_output_row(
-                input_row,
-                messages=messages,
-                elapsed_seconds=elapsed_seconds,
+        runnable_rows.append((index, input_row))
+
+    if runnable_rows:
+        worker_count = min(args.workers, len(runnable_rows))
+        print(
+            f"Running {len(runnable_rows)} question(s) with {worker_count} worker(s), "
+            f"timeout={args.timeout_seconds:g}s, max_attempts={args.max_attempts}, "
+            f"retry_backoff={args.retry_backoff_seconds:g}s"
+        )
+
+    with ThreadPoolExecutor(max_workers=max(1, min(args.workers, len(runnable_rows) or 1))) as executor:
+        future_map = {
+            executor.submit(
+                run_question_with_retries,
+                input_index=index,
+                total=len(input_rows),
+                input_row=input_row,
+                question_column=args.question_column,
                 model=settings.model,
                 reasoning_effort=reasoning_effort,
                 service_tier=service_tier,
-            )
-        except AgentRunError as exc:
-            output_row = build_output_row(
-                input_row,
-                messages=[],
-                elapsed_seconds=exc.elapsed_seconds,
-                model=settings.model,
-                reasoning_effort=reasoning_effort,
-                service_tier=service_tier,
-                error_message=str(exc),
+                timeout_seconds=args.timeout_seconds,
+                max_attempts=args.max_attempts,
+                retry_backoff_seconds=args.retry_backoff_seconds,
+            ): (index, input_row)
+            for index, input_row in runnable_rows
+        }
+
+        for completed_count, future in enumerate(as_completed(future_map), start=1):
+            index, input_row = future_map[future]
+            key = row_key(input_row, args.question_column)
+            question = input_row.get(args.question_column, "").strip()
+            print(f"[{completed_count}/{len(runnable_rows)}] Completed {key or question}")
+
+            try:
+                result = future.result()
+                output_row = result["output_row"]
+                failed_entry = result.get("failed_entry")
+            except Exception as exc:  # noqa: BLE001 - checkpoint unexpected worker failures.
+                error_message = f"{type(exc).__name__}: {exc}"
+                attempt_errors = [error_message]
+                output_row = build_output_row(
+                    input_row,
+                    messages=[],
+                    elapsed_seconds=0.0,
+                    model=settings.model,
+                    reasoning_effort=reasoning_effort,
+                    service_tier=service_tier,
+                    attempt_count=args.max_attempts,
+                    attempt_errors=attempt_errors,
+                    error_message=error_message,
+                )
+                failed_entry = build_failed_checkpoint_entry(
+                    input_index=index,
+                    key=key,
+                    question_column=args.question_column,
+                    input_row=input_row,
+                    output_row=output_row,
+                    attempt_errors=attempt_errors,
+                )
+
+            append_csv_row(csv_output_path, output_fieldnames, output_row)
+            output_index += 1
+            append_markdown_row(
+                md_output_path,
+                output_row,
+                index=output_index,
+                question_column=args.question_column,
             )
 
-        append_csv_row(csv_output_path, output_fieldnames, output_row)
-        output_index += 1
-        append_markdown_row(
-            md_output_path,
-            output_row,
-            index=output_index,
+            if failed_entry:
+                failure_by_key[key] = failed_entry
+                print(f"  Failed after retry budget: {key or question}")
+            else:
+                failure_by_key.pop(key, None)
+
+            if key:
+                skip_keys.add(key)
+
+            if args.failed_only or failed_entry:
+                write_failed_checkpoint(
+                    failed_checkpoint_path,
+                    failures=list(failure_by_key.values()),
+                    input_path=input_path,
+                    question_column=args.question_column,
+                    run_name=run_name,
+                )
+
+    if failure_by_key or args.failed_only or args.limit is None:
+        write_failed_checkpoint(
+            failed_checkpoint_path,
+            failures=list(failure_by_key.values()),
+            input_path=input_path,
             question_column=args.question_column,
+            run_name=run_name,
         )
-        if key:
-            skip_keys.add(key)
+
+    print(f"Failed checkpoint: {failed_checkpoint_path}")
+    print(f"Failed count: {len(failure_by_key)}")
 
     print(f"CSV output: {csv_output_path}")
     print(f"Markdown output: {md_output_path}")
