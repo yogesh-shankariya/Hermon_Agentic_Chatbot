@@ -6,8 +6,8 @@ llm:
   # production to a subset.
   sql_agent:
     Model: "gpt-5.4"
-    reasoning:
-      effort: "xhigh"
+    # reasoning:
+    #   effort: "xhigh"
     prompt_cache_key: "hermon_sql_agent_v1"
     prompt_cache_retention: "24h"
     max_tool_rows: 20
@@ -37,4 +37,4 @@ testing:
     # Flex is lower cost but slower and can be unavailable; keep production on
     # the default service tier by leaving llm.sql_agent.service_tier unset.
     # Set to "default" to use normal processing instead of flex.
-    service_tier: "flex"
+    service_tier: "default"

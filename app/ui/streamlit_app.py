@@ -25,11 +25,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.agents.sql_agent import create_sql_agent  # noqa: E402
-from app.config import get_sql_agent_settings  # noqa: E402
+from app.config import get_sql_agent_settings, load_app_config  # noqa: E402
 from app.utils.skill_loader import list_skill_metadata  # noqa: E402
 
 
 TESTING_DIR = PROJECT_ROOT / "app" / "testing"
+CONFIG_PATH = PROJECT_ROOT / "app" / "config" / "config.yaml"
+SQL_AGENT_PROMPT_PATH = PROJECT_ROOT / "app" / "prompts" / "sql_agent" / "1_0_0.yaml"
 TESTING_INPUT_DIR = TESTING_DIR / "input"
 ACQUISITION_INPUT_QUESTIONS_PATH = (
     TESTING_INPUT_DIR / "acquisition_analytics_clean_test_questions.csv"
@@ -43,12 +45,17 @@ BOT_LOGO_PATH = PROJECT_ROOT / "app" / "ui" / "assets" / "hermon_bot.svg"
 PAGE_TITLE = "Hermon Q&A Agent"
 PAGE_ICON = str(BOT_LOGO_PATH)
 LAYOUT = "wide"
-AGENT_CACHE_VERSION = "trend-default-dates-v1"
+AGENT_CACHE_VERSION = "no-standalone-validate-v2"
 COMPACT_TABLE_MAX_COLUMNS = 8
 COMPACT_TABLE_MAX_ROWS = 30
 MAX_CONTEXT_TURNS = 5
 
 SQL_FENCE_RE = re.compile(r"```(?:sql)?\s*.*?```", re.IGNORECASE | re.DOTALL)
+STRINGIFIED_REASONING_BLOCK_RE = re.compile(
+    r"^\s*\{[^{}]*['\"]type['\"]:\s*['\"]reasoning['\"][^{}]*\}\s*",
+    re.IGNORECASE,
+)
+IGNORED_CONTENT_BLOCK_TYPES = {"reasoning", "function_call", "tool_call"}
 SECTION_LABELS_TO_STRIP = {
     "query",
     "query used",
@@ -96,6 +103,12 @@ QUESTION_PICKER_CONFIGS: tuple[dict[str, Any], ...] = (
 def init_state() -> None:
     if "turns" not in st.session_state:
         st.session_state.turns = []
+        return
+    prune_turn_history()
+
+
+def prune_turn_history() -> None:
+    st.session_state.turns = st.session_state.turns[-MAX_CONTEXT_TURNS:]
 
 
 def inject_styles() -> None:
@@ -321,8 +334,15 @@ def inject_styles() -> None:
 
 
 @st.cache_resource(show_spinner=False)
-def get_agent(cache_version: str = AGENT_CACHE_VERSION):
+def get_agent(
+    cache_version: str = AGENT_CACHE_VERSION,
+    config_mtime_ns: int = 0,
+    prompt_mtime_ns: int = 0,
+):
     _ = cache_version
+    _ = config_mtime_ns
+    _ = prompt_mtime_ns
+    load_app_config.cache_clear()
     return create_sql_agent()
 
 
@@ -372,18 +392,28 @@ def load_questions_from_paths(
     return {"questions": [], "source_file": ""}
 
 
+def stringify_content_block(item: Any) -> str:
+    if isinstance(item, dict):
+        block_type = str(item.get("type", "")).lower()
+        if block_type in IGNORED_CONTENT_BLOCK_TYPES:
+            return ""
+        if "text" in item:
+            return str(item["text"])
+        if "content" in item:
+            return stringify_content(item["content"])
+        return ""
+    return stringify_content(item)
+
+
 def stringify_content(content: Any) -> str:
     if content is None:
         return ""
     if isinstance(content, str):
         return content
+    if isinstance(content, dict):
+        return stringify_content_block(content)
     if isinstance(content, list):
-        parts = []
-        for item in content:
-            if isinstance(item, dict) and "text" in item:
-                parts.append(str(item["text"]))
-            else:
-                parts.append(str(item))
+        parts = [part for item in content if (part := stringify_content_block(item))]
         return "\n".join(parts)
     return str(content)
 
@@ -520,6 +550,12 @@ def is_noise_section_heading(line: str) -> bool:
 
 def clean_answer_for_display(answer: str) -> str:
     """Remove technical SQL/tool sections while preserving the business answer."""
+
+    while True:
+        cleaned_answer = STRINGIFIED_REASONING_BLOCK_RE.sub("", answer, count=1)
+        if cleaned_answer == answer:
+            break
+        answer = cleaned_answer
 
     cleaned = SQL_FENCE_RE.sub("", answer)
 
@@ -701,7 +737,10 @@ def recent_context_messages(turns: list[dict[str, Any]]) -> list[dict[str, str]]
 
 
 def run_question(question: str) -> dict[str, Any]:
-    agent = get_agent()
+    agent = get_agent(
+        config_mtime_ns=CONFIG_PATH.stat().st_mtime_ns,
+        prompt_mtime_ns=SQL_AGENT_PROMPT_PATH.stat().st_mtime_ns,
+    )
     context_messages = recent_context_messages(st.session_state.turns)
     request_messages = [
         *context_messages,
@@ -1050,6 +1089,7 @@ def render_hero() -> None:
 
 
 def main() -> None:
+    load_app_config.cache_clear()
     st.set_page_config(
         page_title=PAGE_TITLE,
         page_icon=PAGE_ICON,
@@ -1092,6 +1132,7 @@ def main() -> None:
             render_answer(turn)
 
         st.session_state.turns.append(turn)
+        prune_turn_history()
 
 
 if __name__ == "__main__":

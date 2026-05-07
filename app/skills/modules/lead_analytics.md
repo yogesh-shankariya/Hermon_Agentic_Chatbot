@@ -491,6 +491,8 @@ For pipeline role trends, derive roles dynamically from `sales_statuses.role` in
 
 If no date range is provided, use the default trend windows from the main prompt. Do not ask the user for dates.
 
+For monthly role trends, generate a complete month series from `:start_date` to `:end_date` and left join leads into that series so every month in the requested/default window is returned, including months with zero matching leads. This is especially important for questions like "won leads in the last 3 months, provide trend".
+
 ## Previous Completed Month Lead Change
 
 Use this when the user asks:

@@ -239,4 +239,6 @@ def run_readonly_sql(query: str, params_json: str = "{}") -> str:
     )
 
 
-SQL_AGENT_TOOLS = [load_skill, validate_sql, run_readonly_sql]
+# run_readonly_sql validates before executing, so the agent does not need a
+# separate validate_sql round trip during normal Q&A.
+SQL_AGENT_TOOLS = [load_skill, run_readonly_sql]
