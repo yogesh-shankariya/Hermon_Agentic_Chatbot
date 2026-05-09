@@ -147,7 +147,9 @@ class ReadOnlyPostgres:
     ) -> list[dict[str, Any]]:
         """Validate and execute SQL, returning records for API/agent use."""
 
-        return self.query_df(sql, params=params, max_rows=max_rows).to_dict(orient="records")
+        validated_sql = self.validate_sql(sql)
+        limited_sql = self._wrap_with_limit(validated_sql, max_rows=max_rows)
+        return self._execute_records(limited_sql, params=params or {})
 
     def validate_sql(self, sql: str) -> str:
         """Return cleaned SQL if safe, otherwise raise QueryValidationError."""
@@ -199,6 +201,23 @@ class ReadOnlyPostgres:
                 df = pd.read_sql_query(text(sql), conn, params=params)
                 transaction.commit()
                 return df
+            except Exception:
+                transaction.rollback()
+                raise
+
+    def _execute_records(self, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        engine = self._get_engine()
+        with engine.connect() as conn:
+            transaction = conn.begin()
+            try:
+                conn.exec_driver_sql("SET TRANSACTION READ ONLY")
+                conn.exec_driver_sql(
+                    f"SET LOCAL statement_timeout = {int(self.config.statement_timeout_ms)}"
+                )
+                result = conn.execute(text(sql), params)
+                rows = [dict(row) for row in result.mappings()]
+                transaction.commit()
+                return rows
             except Exception:
                 transaction.rollback()
                 raise

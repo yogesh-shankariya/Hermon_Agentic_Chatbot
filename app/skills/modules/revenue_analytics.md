@@ -48,9 +48,7 @@ Do not use this skill for:
 - Lead-only counts, lead status, lead source breakdowns, stale leads, missing owners, missing setters, or lead creation trends. Use `lead_analytics`.
 - Appointment counts, booked calls, no-show rates, appointment outcomes, Fathom coverage, Fathom call summaries, objections, action items, or call duration. Use `appointment_analytics`.
 - Form-answer, UTM, landing-page, traffic attribution, or opt-in question analysis. Use `acquisition_analytics`.
-- Full single-lead summaries with notes, calls, contracts, payments, and complete timeline. Use `lead_360`.
 - Provider integration health, webhook troubleshooting, credential validation, API keys, webhook payloads, or connection status. Use an integration/admin skill.
-- Broad semantic analysis over payment notes, contract notes, refund reasons, or unmatched payment descriptions. Use `semantic_context` or a future pgvector/hybrid retrieval skill when the user asks for qualitative theme discovery across many records.
 
 If the user question requires tables outside `programs`, `contracts`, `contract_subscriptions`, `subscription_checkout_links`, `payments`, `payment_links`, `payment_proofs`, `refunds`, `invoices`, `unmatched_payments`, or `leads`, do not use this skill unless the required logic is explicitly listed in this file.
 

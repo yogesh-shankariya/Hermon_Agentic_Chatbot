@@ -119,6 +119,11 @@ def default_trend_dates(granularity: str, today: date) -> tuple[date | None, dat
     return None, None
 
 
+def default_previous_month_dates(today: date) -> tuple[date, date]:
+    current_month_start = today.replace(day=1)
+    return _month_start_months_ago(current_month_start, 1), current_month_start
+
+
 def _infer_trend_granularity(sql: str) -> str | None:
     match = DATE_TRUNC_GRANULARITY_RE.search(sql)
     if not match:
@@ -142,6 +147,26 @@ def _apply_default_trend_dates(sql: str, params: dict[str, Any]) -> None:
         return
 
     start_date, end_date = default_trend_dates(_infer_trend_granularity(sql) or "", date.today())
+    if start_date is None or end_date is None:
+        return
+
+    params["start_date"] = start_date.isoformat()
+    params["end_date"] = end_date.isoformat()
+
+
+def _apply_default_date_window(sql: str, params: dict[str, Any]) -> None:
+    if "start_date" in params or "end_date" in params:
+        return
+
+    if ":start_date" not in sql or ":end_date" not in sql:
+        return
+
+    trend_granularity = _infer_trend_granularity(sql)
+    if trend_granularity:
+        start_date, end_date = default_trend_dates(trend_granularity, date.today())
+    else:
+        start_date, end_date = default_previous_month_dates(date.today())
+
     if start_date is None or end_date is None:
         return
 
@@ -190,8 +215,10 @@ def run_readonly_sql(query: str, params_json: str = "{}") -> str:
     HERMON_DEFAULT_CLERK_ORG_ID as `org_id` when it is not provided in
     params_json. Daily, weekly, or monthly trend queries that omit
     start_date/end_date receive application defaults when granularity can be
-    inferred from DATE_TRUNC. Use params_json for other named parameters, for
-    example: {"start_date": "2026-04-01", "end_date": "2026-05-01"}.
+    inferred from DATE_TRUNC. Non-trend queries that use both :start_date and
+    :end_date but omit params receive the previous completed calendar month as
+    a safe fallback. Use params_json for other named parameters, for example:
+    {"start_date": "2026-04-01", "end_date": "2026-05-01"}.
     """
 
     settings = get_sql_agent_settings()
@@ -212,7 +239,7 @@ def run_readonly_sql(query: str, params_json: str = "{}") -> str:
         # the actual tenant value so the model never sees or hardcodes it.
         params.setdefault("org_id", settings.default_org_id)
         params.setdefault("limit", max_rows)
-        _apply_default_trend_dates(sql, params)
+        _apply_default_date_window(sql, params)
         rows = get_db().query_records(sql, params=params, max_rows=max_rows)
     except (QueryValidationError, ValueError) as exc:
         return _json_response(

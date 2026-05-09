@@ -42,9 +42,7 @@ Do not use this skill for:
 - Lead no-show status questions such as "how many leads are marked no-show". Use `lead_analytics`.
 - Revenue, contracts, payments, invoices, refunds, subscriptions, or payment links. Use `revenue_analytics`.
 - Form-answer, UTM, landing-page, traffic attribution, or opt-in question analysis. Use `acquisition_analytics`.
-- Full single-lead summaries with notes, calls, contracts, payments, and complete timeline. Use `lead_360`.
 - Provider integration health, webhook troubleshooting, credential validation, API keys, webhook payloads, or connection status. Use an integration/admin skill.
-- Deep semantic search over long call text, notes, summaries, objections, or action items. Use `semantic_context` or a future pgvector/hybrid retrieval skill when the user asks for qualitative theme discovery across many records.
 
 If the user question requires tables outside `appointments`, `appointment_event_types`, `sales_statuses`, `leads`, or `fathom_call_records`, do not use this skill unless the required logic is explicitly listed in this file.
 

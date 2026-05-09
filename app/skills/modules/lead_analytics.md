@@ -39,7 +39,6 @@ Do not use this skill for:
 - Appointment/call/no-show details beyond current lead status. Use `appointment_analytics`.
 - Appointment no-show rate, no-shows by appointment type, no-shows by call date, no-shows by host, or no-shows by Calendly event. Use `appointment_analytics`.
 - Form-answer, UTM, landing-page, traffic attribution, or opt-in question analysis. Use `acquisition_analytics`.
-- Full single-lead summaries with notes, calls, contracts, payments, Fathom records, or full timeline. Use `lead_360`.
 - Provider integration health, webhook troubleshooting, credential validation, API keys, webhook payloads, or connection status. Use an integration/admin skill.
 
 If the user question requires tables outside `leads`, `sales_statuses`, or `marketing_sources`, do not use this skill unless the required logic is explicitly listed in this file.

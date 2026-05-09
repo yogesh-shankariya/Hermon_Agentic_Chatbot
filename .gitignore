@@ -3,3 +3,4 @@
 __pycache__/
 *.py[cod]
 .DS_Store
+.hermon_poc_chat_history.sqlite3*

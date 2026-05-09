@@ -34,9 +34,8 @@ Do not use this skill for:
 - Lead-only counts, lead status, normalized marketing source breakdowns from `leads.first_source_id` or `leads.last_source_id`, stale leads, missing owners, missing setters, or lead creation trends. Use `lead_analytics`.
 - Appointment counts, booked calls, appointment outcomes, appointment no-show rates, Fathom call summaries, objections, action items, Fathom coverage, or call duration. Use `appointment_analytics`.
 - Revenue, contracts, payments, invoices, refunds, subscriptions, payment links, or payment proofs. Use `revenue_analytics`.
-- Full single-lead summaries with notes, calls, contracts, payments, Fathom records, and full timeline. Use `lead_360`.
 - Provider integration health, webhook troubleshooting, credential validation, API keys, raw webhook payloads, raw provider payloads, or connection status. Use an integration/admin skill.
-- Broad semantic theme discovery over long form answers such as "what are people struggling with", "summarize the common pain points", or "what objections appear in form answers". Use `semantic_context` or a future pgvector/hybrid retrieval skill when the user asks for qualitative theme discovery across many text answers.
+
 
 If the user question requires tables outside `opt_ins`, `opt_in_question_answers`, `traffic_attributions`, `leads`, or `sales_statuses`, do not use this skill unless the required logic is explicitly listed in this file.
 
