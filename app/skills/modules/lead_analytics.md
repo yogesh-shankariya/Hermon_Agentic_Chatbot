@@ -43,6 +43,34 @@ Do not use this skill for:
 
 If the user question requires tables outside `leads`, `sales_statuses`, or `marketing_sources`, do not use this skill unless the required logic is explicitly listed in this file.
 
+## Cross-Skill SQL Composition Rules
+
+This skill is the primary skill when the main metric is lead count, lead status, lead source, pipeline role, owner assignment, setter assignment, follow-up workload, overdue follow-up, stale leads, stuck leads, or lead creation trend.
+
+This skill can also be used as a supporting skill when another primary skill needs lead-related dimensions or lead status context.
+
+When `lead_analytics` is primary:
+- This skill controls lead metric definitions, lead status logic, lead source logic, owner/setter logic, follow-up logic, stale lead logic, date field, and aggregation grain.
+
+When `lead_analytics` is supporting:
+- Use it only for lead-source meaning, first-source/last-source interpretation, marketing source joins, lead status role interpretation, owner/setter meaning, and safe lead join context.
+- Do not use this skill to override revenue, appointment, or acquisition metric calculations.
+
+Allowed supporting skill usage:
+- Support `revenue_analytics` for revenue by lead source, first source, last source, marketing source, lead owner, lead setter, or current lead status context.
+- Support `appointment_analytics` for appointments, no-show rate, or call metrics by lead source, first source, last source, marketing source, lead owner, lead setter, or current lead status context.
+- Support `acquisition_analytics` when acquisition questions need current lead status, won/lost lead conversion context, lead identity context, lead owner, or lead setter.
+
+Conflict rule:
+- If this skill is supporting another skill, the primary skill controls the metric, base table, date field, and aggregation grain.
+- `lead_analytics` controls only lead dimension semantics and lead join interpretation.
+
+Examples:
+- "Revenue by source" -> supporting `lead_analytics` for first-touch lead source.
+- "No-show rate by source" -> supporting `lead_analytics` for lead source.
+- "Appointments by first source" -> supporting `lead_analytics` for first-touch source.
+- "Won leads by UTM campaign" -> supporting `lead_analytics` for current lead status conversion context.
+
 ## SQL Generation Rules
 
 Generate exactly one read-only PostgreSQL SQL statement.

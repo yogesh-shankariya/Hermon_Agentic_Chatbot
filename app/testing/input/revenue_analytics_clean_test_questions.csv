@@ -1,6 +1,6 @@
 question_id,category,question,expected_skill,expected_intent,expected_output,notes
-RAQ-001,Revenue totals,How much net collected revenue have we collected so far?,revenue_analytics,aggregate,markdown_table,"Default revenue = paid payments minus succeeded refunds, grouped by currency."
-RAQ-002,Revenue totals,What is our gross paid revenue before refunds?,revenue_analytics,aggregate,markdown_table,"Use paid payments only, grouped by currency."
+RAQ-001,Revenue totals,How much net collected revenue have we collected so far?,revenue_analytics,aggregate,markdown_table,"Default revenue = paid payments minus succeeded refunds, single EUR total."
+RAQ-002,Revenue totals,What is our gross paid revenue before refunds?,revenue_analytics,aggregate,markdown_table,"Use paid payments only, single EUR total."
 RAQ-003,Revenue totals,How much net collected revenue did we collect from 2026-04-01 to 2026-05-01?,revenue_analytics,aggregate_date_range,markdown_table,Use p.paid_at and succeeded refund timing with explicit previous completed month window.
 RAQ-004,Revenue totals,What was the gross paid revenue from 2026-04-01 to 2026-05-01?,revenue_analytics,aggregate_date_range,markdown_table,Use p.paid_at and p.status = PAID.
 RAQ-005,Revenue totals,How much revenue did we collect across the previous 3 completed months from 2026-02-01 to 2026-05-01?,revenue_analytics,aggregate_date_range,markdown_table,Explicit 3-month completed window.
@@ -13,14 +13,14 @@ RAQ-011,Revenue trends,Show the monthly signed contract value trend from 2025-05
 RAQ-012,Revenue trends,Which month had the highest net collected revenue from 2025-05-01 to 2026-05-01?,revenue_analytics,ranking_trend,markdown_table,Monthly net revenue ranking over explicit range.
 RAQ-013,Revenue trends,Show revenue collected by payment provider month by month from 2026-02-01 to 2026-05-01.,revenue_analytics,monthly_trend_by_category,trend_table,Group paid revenue by month and provider.
 RAQ-014,Revenue trends,Show net revenue by program month by month from 2026-02-01 to 2026-05-01.,revenue_analytics,monthly_trend_by_category,trend_table,Group net revenue by program and month.
-RAQ-015,Payment breakdowns,What is the payment breakdown by status?,revenue_analytics,breakdown,markdown_table,Group payments by status and currency.
-RAQ-016,Payment breakdowns,What is the payment amount breakdown by payment type?,revenue_analytics,breakdown,markdown_table,Group payments by PaymentType and currency.
-RAQ-017,Payment breakdowns,What is the payment provider breakdown by paid payment volume?,revenue_analytics,breakdown,markdown_table,Group paid payments by provider and currency.
+RAQ-015,Payment breakdowns,What is the payment breakdown by status?,revenue_analytics,breakdown,markdown_table,Group payments by status only; do not split by currency by default.
+RAQ-016,Payment breakdowns,What is the payment amount breakdown by payment type?,revenue_analytics,breakdown,markdown_table,Group payments by PaymentType only; do not split by currency by default.
+RAQ-017,Payment breakdowns,What is the payment provider breakdown by paid payment volume?,revenue_analytics,breakdown,markdown_table,Group paid payments by provider only; do not split by currency by default.
 RAQ-018,Payment breakdowns,How many payments do we have by currency?,revenue_analytics,breakdown,markdown_table,Group all non-deleted payments by currency.
 RAQ-019,Payment breakdowns,Show payment status breakdown for payments created from 2026-04-01 to 2026-05-01.,revenue_analytics,breakdown_date_range,markdown_table,Use payments.created_at for payment setup period.
 RAQ-020,Payment breakdowns,Show payment provider breakdown for paid payments collected from 2026-04-01 to 2026-05-01.,revenue_analytics,breakdown_date_range,markdown_table,Use p.paid_at and p.status = PAID.
 RAQ-021,Payment breakdowns,Show payment type breakdown for payments due from 2026-04-01 to 2026-05-01.,revenue_analytics,breakdown_date_range,markdown_table,Use p.due_date for due-period analysis.
-RAQ-022,Payment breakdowns,Which payment provider collected the most gross paid revenue?,revenue_analytics,ranking,markdown_table,Rank paid revenue by provider and currency.
+RAQ-022,Payment breakdowns,Which payment provider collected the most gross paid revenue?,revenue_analytics,ranking,markdown_table,Rank paid revenue by provider only; do not split by currency by default.
 RAQ-023,Payment breakdowns,Which currency has the highest paid payment amount?,revenue_analytics,ranking,markdown_table,Rank gross paid amount by currency.
 RAQ-024,Payment operations,How much outstanding payment amount is still due?,revenue_analytics,aggregate,markdown_table,Use PENDING and FAILED payments only.
 RAQ-025,Payment operations,How much overdue payment amount do we have?,revenue_analytics,aggregate,markdown_table,Use due_date < NOW() and unpaid statuses.
@@ -48,12 +48,12 @@ RAQ-046,Contract value and rates,What is the total signed contract value by curr
 RAQ-047,Contract value and rates,What is the signed contract value from 2026-04-01 to 2026-05-01?,revenue_analytics,aggregate_date_range,markdown_table,Use c.signed_at and status SIGNED.
 RAQ-048,Contract value and rates,What is the contract signed rate?,revenue_analytics,rate,single_sentence,Signed contracts over all non-deleted contracts.
 RAQ-049,Contract value and rates,What is the sent-to-signed contract rate?,revenue_analytics,rate,single_sentence,Denominator excludes drafts.
-RAQ-050,Contract value and rates,What is the signed contract value by contract type?,revenue_analytics,breakdown,markdown_table,Group signed contract value by c.type and currency.
+RAQ-050,Contract value and rates,What is the signed contract value by contract type?,revenue_analytics,breakdown,markdown_table,Group signed contract value by c.type only; do not split by currency by default.
 RAQ-051,Contract value and rates,Which contract type has the highest signed contract value?,revenue_analytics,ranking,markdown_table,Rank by signed value.
 RAQ-052,Contract value and rates,Show signed contract value by currency from 2026-01-01 to 2026-04-01.,revenue_analytics,aggregate_date_range,markdown_table,Explicit Q1 signed_at range.
 RAQ-053,Contract value and rates,Show sent-to-signed rate for contracts sent from 2026-01-01 to 2026-04-01.,revenue_analytics,rate_date_range,single_sentence,Use sent contracts in period and signed status.
 RAQ-054,Program revenue,Which program generated the most net collected revenue?,revenue_analytics,ranking,markdown_table,Use paid payments minus succeeded refunds joined to program.
-RAQ-055,Program revenue,Show net collected revenue by program.,revenue_analytics,breakdown,markdown_table,Group net revenue by program and currency.
+RAQ-055,Program revenue,Show net collected revenue by program.,revenue_analytics,breakdown,markdown_table,Group net revenue by program only; do not split by currency by default.
 RAQ-056,Program revenue,Show signed contract value by program.,revenue_analytics,breakdown,markdown_table,Use signed contracts joined to programs.
 RAQ-057,Program revenue,Show net collected revenue by program from 2026-04-01 to 2026-05-01.,revenue_analytics,breakdown_date_range,markdown_table,Use paid_at and refund timing within April window.
 RAQ-058,Program revenue,Show signed contract value by program from 2026-04-01 to 2026-05-01.,revenue_analytics,breakdown_date_range,markdown_table,Use c.signed_at within April window.
@@ -61,22 +61,22 @@ RAQ-059,Program revenue,Which program has the highest paid payment count?,revenu
 RAQ-060,Program revenue,Which program has the highest refunded amount?,revenue_analytics,ranking,markdown_table,Join succeeded refunds to payments/contracts/programs.
 RAQ-061,Program revenue,"Show program performance with paid payment count, gross paid amount, refunds, and net revenue.",revenue_analytics,breakdown,markdown_table,Return revenue KPIs by program.
 RAQ-062,Closer and setter performance,Which closer sold the most signed contract value?,revenue_analytics,ranking,markdown_table,Exclude missing closer unless explicitly asked.
-RAQ-063,Closer and setter performance,Show signed contract value by closer.,revenue_analytics,breakdown,markdown_table,Group signed contracts by closer_id and currency.
-RAQ-064,Closer and setter performance,Show signed contract value by setter.,revenue_analytics,breakdown,markdown_table,Group signed contracts by setter_id and currency.
+RAQ-063,Closer and setter performance,Show signed contract value by closer.,revenue_analytics,breakdown,markdown_table,Group signed contracts by closer_id only; do not split by currency by default.
+RAQ-064,Closer and setter performance,Show signed contract value by setter.,revenue_analytics,breakdown,markdown_table,Group signed contracts by setter_id only; do not split by currency by default.
 RAQ-065,Closer and setter performance,Which setter is attached to the highest signed contract value?,revenue_analytics,ranking,markdown_table,Rank signed value by setter_id.
 RAQ-066,Closer and setter performance,Show signed contract count by closer from 2026-04-01 to 2026-05-01.,revenue_analytics,breakdown_date_range,markdown_table,Use c.signed_at in previous month.
 RAQ-067,Closer and setter performance,Show signed contract value by setter from 2026-04-01 to 2026-05-01.,revenue_analytics,breakdown_date_range,markdown_table,Use c.signed_at in previous month.
 RAQ-068,Closer and setter performance,Which closer has the most signed contracts?,revenue_analytics,ranking,markdown_table,Rank signed contract count by closer_id.
 RAQ-069,Closer and setter performance,Which setter has the most signed contracts?,revenue_analytics,ranking,markdown_table,Rank signed contract count by setter_id.
-RAQ-070,Refunds,What is the refund amount by refund status?,revenue_analytics,breakdown,markdown_table,Group refunds by status and currency.
+RAQ-070,Refunds,What is the refund amount by refund status?,revenue_analytics,breakdown,markdown_table,Group refunds by status only; do not split by currency by default.
 RAQ-071,Refunds,How much succeeded refund amount do we have?,revenue_analytics,aggregate,markdown_table,Use r.status = SUCCEEDED.
 RAQ-072,Refunds,What is the refund rate by currency?,revenue_analytics,rate,markdown_table,Succeeded refunds divided by gross paid amount.
 RAQ-073,Refunds,How much succeeded refund amount was completed from 2026-04-01 to 2026-05-01?,revenue_analytics,aggregate_date_range,markdown_table,"Use COALESCE(r.refunded_at, r.created_at)."
 RAQ-074,Refunds,Show refund status breakdown for refunds created from 2026-04-01 to 2026-05-01.,revenue_analytics,breakdown_date_range,markdown_table,Use r.created_at for refund records.
 RAQ-075,Refunds,List failed refunds.,revenue_analytics,list,list_table,Filter r.status = FAILED.
 RAQ-076,Refunds,List initiated refunds that are not succeeded yet.,revenue_analytics,list,list_table,Filter r.status = INITIATED.
-RAQ-077,Refunds,Which payment provider has the highest succeeded refund amount?,revenue_analytics,ranking,markdown_table,Group succeeded refunds by payment_provider and currency.
-RAQ-078,Invoices,What is the invoice breakdown by status?,revenue_analytics,breakdown,markdown_table,Group invoices by PAID/REFUNDED status and currency.
+RAQ-077,Refunds,Which payment provider has the highest succeeded refund amount?,revenue_analytics,ranking,markdown_table,Group succeeded refunds by payment_provider only; do not split by currency by default.
+RAQ-078,Invoices,What is the invoice breakdown by status?,revenue_analytics,breakdown,markdown_table,Group invoices by PAID/REFUNDED status only; do not split by currency by default.
 RAQ-079,Invoices,How many invoices were issued from 2026-04-01 to 2026-05-01?,revenue_analytics,count_date_range,single_sentence,Use i.issued_at date range.
 RAQ-080,Invoices,How much invoice amount was paid from 2026-04-01 to 2026-05-01?,revenue_analytics,aggregate_date_range,markdown_table,Use invoice status PAID and i.paid_at.
 RAQ-081,Invoices,How many payments have invoices attached?,revenue_analytics,coverage,single_sentence,Join payments to invoices; count with invoice.
@@ -102,16 +102,14 @@ RAQ-100,Subscriptions and MRR,How many subscriptions have cancellation scheduled
 RAQ-101,Subscriptions and MRR,List subscriptions with cancellation scheduled.,revenue_analytics,list,list_table,Return subscription context.
 RAQ-102,Subscriptions and MRR,Which subscriptions have next billing dates from 2026-05-05 to 2026-06-05?,revenue_analytics,list_date_range,list_table,Use cs.next_billing_date range.
 RAQ-103,Subscriptions and MRR,Show subscription revenue collected by provider.,revenue_analytics,breakdown,markdown_table,Group subscription total_collected or paid subscription payments by provider.
-RAQ-104,Subscriptions and MRR,Which subscription provider has the highest active MRR?,revenue_analytics,ranking,markdown_table,Rank active MRR by provider and currency.
+RAQ-104,Subscriptions and MRR,Which subscription provider has the highest active MRR?,revenue_analytics,ranking,markdown_table,Rank active MRR by provider only; do not split by currency by default.
 RAQ-105,Subscription checkout links,What is the subscription checkout link breakdown by status?,revenue_analytics,breakdown,markdown_table,Group subscription_checkout_links by status through subscriptions/contracts.
 RAQ-106,Subscription checkout links,How many active subscription checkout links do we have?,revenue_analytics,count,single_sentence,Filter checkout link status ACTIVE.
 RAQ-107,Subscription checkout links,How many used subscription checkout links do we have?,revenue_analytics,count,single_sentence,Filter checkout link status USED.
 RAQ-108,Subscription checkout links,How many invalid subscription checkout links do we have?,revenue_analytics,count,single_sentence,Filter checkout link status INVALID.
-RAQ-109,Unmatched payments,What is the unmatched payment breakdown by status?,revenue_analytics,breakdown,markdown_table,Group unmatched_payments by status and currency.
-RAQ-110,Unmatched payments,How many pending unmatched payments need reconciliation?,revenue_analytics,count,single_sentence,Filter unmatched status PENDING.
-RAQ-111,Unmatched payments,What amount is sitting in pending unmatched payments?,revenue_analytics,aggregate,markdown_table,Sum pending unmatched amounts by currency.
-RAQ-112,Unmatched payments,List pending unmatched payments for reconciliation.,revenue_analytics,list,list_table,"Return safe context, no webhook_event_id."
-RAQ-113,Unmatched payments,Which provider has the most pending unmatched payments?,revenue_analytics,ranking,markdown_table,Group pending unmatched by provider and currency.
-RAQ-114,Unmatched payments,Show unmatched payment status breakdown for records created from 2026-04-01 to 2026-05-01.,revenue_analytics,breakdown_date_range,markdown_table,Use unmatched_payments.created_at.
 RAQ-115,Unmatched payments,How many unmatched payments were manually attached?,revenue_analytics,count,single_sentence,Use is_manually_attached = true.
-RAQ-116,Unmatched payments,List attached unmatched payments.,revenue_analytics,list,list_table,Filter status ATTACHED.
+RAQ-117,Source-attributed revenue,Which source generated the most net collected revenue?,revenue_analytics,ranking,markdown_table,Default source attribution uses first-touch marketing source via leads.first_source_id -> marketing_sources.id; use paid payments minus succeeded refunds.
+RAQ-118,Source-attributed revenue,Show net collected revenue by source from 2026-04-01 to 2026-05-01.,revenue_analytics,breakdown_date_range,markdown_table,Use first-touch source by default; filter paid payments by paid_at and succeeded refunds by refunded_at/created_at in the date range.
+RAQ-119,Source-attributed revenue,Show signed contract value by source.,revenue_analytics,breakdown,markdown_table,Use signed contracts joined to leads and first-touch marketing source; do not subtract refunds.
+RAQ-120,Source-attributed revenue,Show gross paid revenue by latest source.,revenue_analytics,breakdown,markdown_table,Use last-touch marketing source via leads.last_source_id -> marketing_sources.id; gross revenue means paid payments without refunds.
+RAQ-121,Source-attributed revenue,Show revenue by high-level lead source category.,revenue_analytics,breakdown,markdown_table,Use leads.source enum for high-level source category; do not join marketing_sources.

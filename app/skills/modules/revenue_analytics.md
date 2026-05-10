@@ -16,12 +16,13 @@ Use this skill for:
 - Gross paid revenue from paid payments.
 - Revenue collected by today, week, month, or custom date range.
 - Revenue trends by day, week, month, or custom date range.
-- Revenue breakdowns by currency, payment provider, program, or payment type.
+- Revenue breakdowns by currency, payment provider, program, lead source, or payment type.
 - Payment counts and payment amount breakdowns by status, type, provider, or currency.
 - Pending, failed, lost, refunded, overdue, outstanding, or due-soon payment analysis.
 - Lists of payments by status, due date, paid date, provider, type, program, or contract.
 - Payment provider performance based on collected revenue or paid payment volume.
 - Program performance based on collected revenue, net revenue, signed contract value, or payment volume.
+- Source performance based on collected revenue, net revenue, signed contract value, or paid payment volume.
 - Contract counts by status, such as draft, sent, viewed, withdrawn, signed, or voided.
 - Signed contract value and booked sales value.
 - Contract signed rate and sent-to-signed contract rate.
@@ -50,7 +51,34 @@ Do not use this skill for:
 - Form-answer, UTM, landing-page, traffic attribution, or opt-in question analysis. Use `acquisition_analytics`.
 - Provider integration health, webhook troubleshooting, credential validation, API keys, webhook payloads, or connection status. Use an integration/admin skill.
 
-If the user question requires tables outside `programs`, `contracts`, `contract_subscriptions`, `subscription_checkout_links`, `payments`, `payment_links`, `payment_proofs`, `refunds`, `invoices`, `unmatched_payments`, or `leads`, do not use this skill unless the required logic is explicitly listed in this file.
+If the user question requires tables outside `programs`, `contracts`, `contract_subscriptions`, `subscription_checkout_links`, `payments`, `payment_links`, `payment_proofs`, `refunds`, `invoices`, `unmatched_payments`, `leads`, or `marketing_sources`, do not use this skill unless the required logic is explicitly listed in this file.
+
+## Cross-Skill SQL Composition Rules
+
+This skill is the primary skill when the main metric is revenue, payment amount, refund amount, contract value, signed value, MRR, outstanding amount, overdue amount, payment count, refund count, invoice amount, or subscription amount.
+
+When `revenue_analytics` is primary:
+- This skill controls the metric definition, base table, date field, aggregation grain, payment logic, refund logic, contract logic, subscription logic, and money calculation.
+- Supporting skills may be loaded only to clarify dimensions, source/status meaning, or safe join context.
+- Do not let a supporting skill override revenue, payment, refund, contract, invoice, or subscription calculations.
+
+Allowed supporting skill usage:
+- Use `lead_analytics` as supporting when the revenue question is broken down by lead source, first source, last source, marketing source, lead status context, lead owner, or lead setter.
+- Use `acquisition_analytics` as supporting only to understand acquisition terms such as UTM campaign, UTM source, UTM medium, landing page, referrer, provider form, form, or opt-in source.
+- Do not generate revenue by UTM campaign, landing page, referrer, form, or opt-in source unless an approved revenue attribution join is explicitly defined in this skill.
+- Use `appointment_analytics` as supporting only when the user asks to compare revenue with appointment or call metrics.
+- Do not join appointment tables into revenue SQL unless an explicit revenue-to-appointment rule is listed.
+
+Conflict rule:
+- If this skill conflicts with a supporting skill, follow `revenue_analytics` for metric logic.
+- Supporting skills are used only for dimension meaning, status/source interpretation, fallback expressions, and safe join context.
+
+Examples:
+- "Revenue by source" -> primary `revenue_analytics`, supporting `lead_analytics`.
+- "Net collected revenue by first source" -> primary `revenue_analytics`, supporting `lead_analytics`.
+- "Signed contract value by source" -> primary `revenue_analytics`, supporting `lead_analytics`.
+- "Revenue by UTM campaign" -> unsupported unless an approved revenue-to-UTM attribution rule is added.
+- "Revenue by landing page" -> unsupported unless an approved revenue-to-landing-page attribution rule is added.
 
 ## SQL Generation Rules
 
@@ -490,7 +518,7 @@ Do not use this table for webhook payload analysis. Use an integration/admin ski
 
 ## `leads`
 
-Use this table only when revenue answers need lead/client display context.
+Use this table only when revenue answers need lead/client display context or lead-source attribution.
 
 Important columns:
 
@@ -503,6 +531,11 @@ Important columns:
 | `full_name` | Generated/display full name. | Display and search. |
 | `email` | Lead email. | Only when explicitly requested. |
 | `phone_e164` | Phone number. | Only when explicitly requested. |
+| `source` | High-level lead source enum. | Use only when the user asks for high-level source category, such as Calendly or Manual. |
+| `first_source_id` | First normalized marketing source ID. | Default source attribution for revenue by source. Join to `marketing_sources.id`. |
+| `first_source_name` | First source snapshot/name. | Fallback display value when `first_source_id` is missing or unmatched. |
+| `last_source_id` | Last normalized marketing source ID. | Use only for latest-source or last-touch revenue attribution. Join to `marketing_sources.id`. |
+| `last_source_name` | Last source snapshot/name. | Fallback display value when `last_source_id` is missing or unmatched. |
 | `is_deleted` | Soft-delete flag. | Usually filter false. |
 
 Join from payments:
@@ -524,6 +557,39 @@ LEFT JOIN leads l
 ```
 
 Do not use this skill for lead-only analytics. Use `lead_analytics` for lead-only questions.
+
+## `marketing_sources`
+
+One row is one normalized marketing source used by leads for first-touch and last-touch attribution.
+
+Important columns:
+
+| Column | Meaning | Use |
+|---|---|---|
+| `id` | Marketing source primary key. | Join from `leads.first_source_id` or `leads.last_source_id`. |
+| `clerk_org_id` | Tenant/organization ID. | Required join safety. |
+| `name` | Normalized source name. | Source-attributed revenue reporting. |
+| `aliases` | Alternate source aliases. | Source normalization context only. |
+| `description` | Source description. | Optional explanation when explicitly useful. |
+| `is_archived` | Archived source flag. | Usually keep for historical attribution. |
+
+Correct first-touch source join:
+
+```sql
+LEFT JOIN marketing_sources first_ms
+  ON first_ms.id = l.first_source_id
+ AND first_ms.clerk_org_id = l.clerk_org_id
+```
+
+Correct last-touch source join:
+
+```sql
+LEFT JOIN marketing_sources last_ms
+  ON last_ms.id = l.last_source_id
+ AND last_ms.clerk_org_id = l.clerk_org_id
+```
+
+Do not join marketing sources by name. Use `l.first_source_name` or `l.last_source_name` only as fallback display values when the corresponding source ID is missing or unmatched.
 
 ## Enums
 
@@ -679,9 +745,30 @@ Default net collected revenue:
 - include non-deleted payments where `p.status = 'PAID'`
 - use `p.paid_at` for revenue timing
 - subtract refunds where `r.status = 'SUCCEEDED'`
-- report by currency unless the user filters to a single currency
+- report as a single EUR total unless the user explicitly asks for a currency breakdown
 
-Do not mix currencies into one total unless the user explicitly asks for all-currency raw totals. There is no FX table in this skill.
+## EUR Currency Reporting Rule
+
+For this implementation, assume all monetary reporting is in EUR.
+
+Default behavior:
+
+- Do not group revenue, payment, refund, contract value, subscription, MRR, or outstanding amount queries by currency unless the user explicitly asks for a currency breakdown.
+- Do not show `currency` as a normal grouped dimension in default aggregate outputs.
+- In final answers, format monetary values as EUR or €.
+- Keep currency fields available in list-style queries only when useful for transparency, but aggregate analytics should not split rows by currency by default.
+
+Important:
+
+- Do not remove currency columns from the schema or database logic.
+- Do not change stored currency values.
+- Do not hardcode fake conversions or FX logic.
+- Do not merge currencies if the user explicitly asks for multi-currency analysis in the future.
+- If the user explicitly asks "by currency", "currency breakdown", or "show currencies", then group by currency.
+- If the query is for debugging or reconciliation and currency is relevant, include currency.
+- Otherwise, default to a single EUR total.
+
+There is no FX table in this skill. Do not invent currency conversion.
 
 If the user asks for gross collected revenue, use only paid payments and do not subtract refunds.
 
@@ -825,7 +912,7 @@ CASE
 END
 ```
 
-Report MRR by currency unless the user filters to a single currency.
+Report MRR as a single EUR total unless the user explicitly asks for a currency breakdown.
 
 Do not include deleted subscriptions or deleted contracts.
 
@@ -836,6 +923,82 @@ When the user asks which program generated the most revenue, use paid payments j
 For signed program value, use signed contracts joined to programs.
 
 For catalog/program setup price, use `programs.price_minor / 100.0`, not payment or contract revenue.
+
+## Source Attribution Rules
+
+When the user asks for "revenue by source", "which source generated the most revenue", "source revenue", or "source performance" without specifying a source type, use first-touch source by default:
+
+```text
+payments -> contracts -> leads.first_source_id -> marketing_sources.id
+```
+
+Use this display expression for default first-touch source:
+
+```sql
+COALESCE(
+  NULLIF(TRIM(first_ms.name), ''),
+  NULLIF(TRIM(l.first_source_name), ''),
+  'Unknown Source'
+) AS first_source
+```
+
+If the user asks for latest source, last source, last-touch source, or source before conversion, use:
+
+```text
+payments -> contracts -> leads.last_source_id -> marketing_sources.id
+```
+
+Use this display expression for last-touch source:
+
+```sql
+COALESCE(
+  NULLIF(TRIM(last_ms.name), ''),
+  NULLIF(TRIM(l.last_source_name), ''),
+  'Unknown Source'
+) AS last_source
+```
+
+If the user asks for high-level source category, enum source, Calendly/Manual/Typeform/Webinar/Newsletter/Landing Page source, use `l.source` and do not join `marketing_sources`.
+
+Join leads for payment revenue attribution like this, falling back from `payments.lead_id` to the linked contract's `lead_id`:
+
+```sql
+LEFT JOIN contracts c
+  ON c.id = p.contract_id
+ AND c.clerk_org_id = p.clerk_org_id
+ AND c.is_deleted = false
+LEFT JOIN leads l
+  ON l.id = COALESCE(p.lead_id, c.lead_id)
+ AND l.clerk_org_id = p.clerk_org_id
+ AND l.is_deleted = false
+```
+
+Join leads for signed contract value attribution like this:
+
+```sql
+LEFT JOIN leads l
+  ON l.id = c.lead_id
+ AND l.clerk_org_id = c.clerk_org_id
+ AND l.is_deleted = false
+```
+
+For collected revenue by source:
+
+- use paid payments as the base
+- use `p.paid_at` for collected revenue timing
+- subtract succeeded refunds for net collected revenue
+- attribute refunds to the source of the original payment
+- report as a single EUR total unless the user explicitly asks for a currency breakdown
+- include `Unknown Source` by default so unattributed revenue is visible
+
+For signed contract value by source:
+
+- use signed contracts as the base
+- use `c.signed_at` for signed value timing
+- use `c.total_value`
+- do not subtract refunds because signed value is not collected cash
+
+Do not use `opt_ins`, `traffic_attributions`, UTM fields, landing pages, referrers, or form answers in this skill. If the user asks for revenue by UTM campaign, landing page, referrer, ad, or form-answer source, say that revenue attribution for those acquisition dimensions is not supported yet.
 
 ## Default List Output Rules
 
@@ -925,23 +1088,20 @@ ORDER BY p.due_date ASC NULLS LAST, p.created_at ASC, p.id ASC
 
 ## Common Query Patterns
 
-## Net Collected Revenue by Currency
+## Net Collected Revenue
 
 Use this for default revenue questions.
 
 ```sql
 WITH paid_payments AS (
   SELECT
-    p.currency,
     SUM(p.amount) AS gross_paid_amount
   FROM payments p
   WHERE p.clerk_org_id = :org_id
     AND p.is_deleted = false
     AND p.status = 'PAID'
-  GROUP BY p.currency
 ), succeeded_refunds AS (
   SELECT
-    r.currency,
     SUM(r.amount) AS refunded_amount
   FROM refunds r
   JOIN payments p
@@ -950,17 +1110,13 @@ WITH paid_payments AS (
    AND p.is_deleted = false
   WHERE r.clerk_org_id = :org_id
     AND r.status = 'SUCCEEDED'
-  GROUP BY r.currency
 )
 SELECT
-  COALESCE(pp.currency, sr.currency) AS currency,
   COALESCE(pp.gross_paid_amount, 0) AS gross_paid_amount,
   COALESCE(sr.refunded_amount, 0) AS refunded_amount,
   COALESCE(pp.gross_paid_amount, 0) - COALESCE(sr.refunded_amount, 0) AS net_collected_revenue
 FROM paid_payments pp
-FULL OUTER JOIN succeeded_refunds sr
-  ON sr.currency = pp.currency
-ORDER BY currency ASC;
+CROSS JOIN succeeded_refunds sr;
 ```
 
 ## Net Collected Revenue in a Date Range
@@ -968,7 +1124,6 @@ ORDER BY currency ASC;
 ```sql
 WITH paid_payments AS (
   SELECT
-    p.currency,
     SUM(p.amount) AS gross_paid_amount
   FROM payments p
   WHERE p.clerk_org_id = :org_id
@@ -976,10 +1131,8 @@ WITH paid_payments AS (
     AND p.status = 'PAID'
     AND p.paid_at >= :start_date
     AND p.paid_at < :end_date
-  GROUP BY p.currency
 ), succeeded_refunds AS (
   SELECT
-    r.currency,
     SUM(r.amount) AS refunded_amount
   FROM refunds r
   JOIN payments p
@@ -990,32 +1143,25 @@ WITH paid_payments AS (
     AND r.status = 'SUCCEEDED'
     AND COALESCE(r.refunded_at, r.created_at) >= :start_date
     AND COALESCE(r.refunded_at, r.created_at) < :end_date
-  GROUP BY r.currency
 )
 SELECT
-  COALESCE(pp.currency, sr.currency) AS currency,
   COALESCE(pp.gross_paid_amount, 0) AS gross_paid_amount,
   COALESCE(sr.refunded_amount, 0) AS refunded_amount,
   COALESCE(pp.gross_paid_amount, 0) - COALESCE(sr.refunded_amount, 0) AS net_collected_revenue
 FROM paid_payments pp
-FULL OUTER JOIN succeeded_refunds sr
-  ON sr.currency = pp.currency
-ORDER BY currency ASC;
+CROSS JOIN succeeded_refunds sr;
 ```
 
-## Gross Paid Revenue by Currency
+## Gross Paid Revenue
 
 ```sql
 SELECT
-  p.currency,
   SUM(p.amount) AS gross_paid_amount,
   COUNT(*) AS paid_payment_count
 FROM payments p
 WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
-  AND p.status = 'PAID'
-GROUP BY p.currency
-ORDER BY gross_paid_amount DESC, p.currency ASC;
+  AND p.status = 'PAID';
 ```
 
 ## Paid Revenue by Payment Provider
@@ -1023,7 +1169,6 @@ ORDER BY gross_paid_amount DESC, p.currency ASC;
 ```sql
 SELECT
   CAST(p.payment_provider AS text) AS payment_provider,
-  p.currency,
   COUNT(*) AS paid_payment_count,
   SUM(p.amount) AS gross_paid_amount,
   SUM(COUNT(*)) OVER() AS total_paid_payments,
@@ -1032,8 +1177,8 @@ FROM payments p
 WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
   AND p.status = 'PAID'
-GROUP BY CAST(p.payment_provider AS text), p.currency
-ORDER BY gross_paid_amount DESC, payment_provider ASC, p.currency ASC;
+GROUP BY CAST(p.payment_provider AS text)
+ORDER BY gross_paid_amount DESC, payment_provider ASC;
 ```
 
 ## Payment Breakdown by Status
@@ -1041,7 +1186,6 @@ ORDER BY gross_paid_amount DESC, payment_provider ASC, p.currency ASC;
 ```sql
 SELECT
   CAST(p.status AS text) AS payment_status,
-  p.currency,
   COUNT(*) AS payment_count,
   SUM(p.amount) AS total_amount,
   SUM(COUNT(*)) OVER() AS total_matching_payments,
@@ -1049,8 +1193,8 @@ SELECT
 FROM payments p
 WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
-GROUP BY CAST(p.status AS text), p.currency
-ORDER BY payment_count DESC, payment_status ASC, p.currency ASC;
+GROUP BY CAST(p.status AS text)
+ORDER BY payment_count DESC, payment_status ASC;
 ```
 
 ## Payment Breakdown by Type
@@ -1058,7 +1202,6 @@ ORDER BY payment_count DESC, payment_status ASC, p.currency ASC;
 ```sql
 SELECT
   CAST(p.type AS text) AS payment_type,
-  p.currency,
   COUNT(*) AS payment_count,
   SUM(p.amount) AS total_amount,
   SUM(COUNT(*)) OVER() AS total_matching_payments,
@@ -1066,30 +1209,26 @@ SELECT
 FROM payments p
 WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
-GROUP BY CAST(p.type AS text), p.currency
-ORDER BY payment_count DESC, payment_type ASC, p.currency ASC;
+GROUP BY CAST(p.type AS text)
+ORDER BY payment_count DESC, payment_type ASC;
 ```
 
 ## Outstanding Payment Amount
 
 ```sql
 SELECT
-  p.currency,
   COUNT(*) AS outstanding_payment_count,
   SUM(p.amount) AS outstanding_amount
 FROM payments p
 WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
-  AND p.status IN ('PENDING', 'FAILED')
-GROUP BY p.currency
-ORDER BY outstanding_amount DESC, p.currency ASC;
+  AND p.status IN ('PENDING', 'FAILED');
 ```
 
 ## Overdue Payment Amount
 
 ```sql
 SELECT
-  p.currency,
   COUNT(*) AS overdue_payment_count,
   SUM(p.amount) AS overdue_amount
 FROM payments p
@@ -1097,9 +1236,7 @@ WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
   AND p.status IN ('PENDING', 'FAILED')
   AND p.due_date IS NOT NULL
-  AND p.due_date < NOW()
-GROUP BY p.currency
-ORDER BY overdue_amount DESC, p.currency ASC;
+  AND p.due_date < NOW();
 ```
 
 ## List Overdue Payments
@@ -1150,7 +1287,6 @@ LIMIT 50;
 
 ```sql
 SELECT
-  p.currency,
   COUNT(*) AS due_payment_count,
   SUM(p.amount) AS due_amount
 FROM payments p
@@ -1158,9 +1294,7 @@ WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
   AND p.status IN ('PENDING', 'FAILED')
   AND p.due_date >= :start_date
-  AND p.due_date < :end_date
-GROUP BY p.currency
-ORDER BY due_amount DESC, p.currency ASC;
+  AND p.due_date < :end_date;
 ```
 
 ## Contract Breakdown by Status
@@ -1179,27 +1313,23 @@ GROUP BY CAST(c.status AS text)
 ORDER BY contract_count DESC, contract_status ASC;
 ```
 
-## Signed Contract Value by Currency
+## Signed Contract Value
 
 ```sql
 SELECT
-  c.currency,
   COUNT(*) AS signed_contract_count,
   SUM(c.total_value) AS signed_contract_value
 FROM contracts c
 WHERE c.clerk_org_id = :org_id
   AND c.is_deleted = false
   AND c.status = 'SIGNED'
-  AND c.total_value IS NOT NULL
-GROUP BY c.currency
-ORDER BY signed_contract_value DESC, c.currency ASC;
+  AND c.total_value IS NOT NULL;
 ```
 
 ## Signed Contract Value in a Date Range
 
 ```sql
 SELECT
-  c.currency,
   COUNT(*) AS signed_contract_count,
   SUM(c.total_value) AS signed_contract_value
 FROM contracts c
@@ -1208,9 +1338,7 @@ WHERE c.clerk_org_id = :org_id
   AND c.status = 'SIGNED'
   AND c.total_value IS NOT NULL
   AND c.signed_at >= :start_date
-  AND c.signed_at < :end_date
-GROUP BY c.currency
-ORDER BY signed_contract_value DESC, c.currency ASC;
+  AND c.signed_at < :end_date;
 ```
 
 ## Contract Signed Rate
@@ -1249,7 +1377,6 @@ WHERE c.clerk_org_id = :org_id
 ```sql
 SELECT
   COALESCE(pr.name, 'Unknown Program') AS program_name,
-  c.currency,
   COUNT(*) AS signed_contract_count,
   SUM(c.total_value) AS signed_contract_value,
   SUM(COUNT(*)) OVER() AS total_signed_contracts,
@@ -1263,8 +1390,8 @@ WHERE c.clerk_org_id = :org_id
   AND c.is_deleted = false
   AND c.status = 'SIGNED'
   AND c.total_value IS NOT NULL
-GROUP BY COALESCE(pr.name, 'Unknown Program'), c.currency
-ORDER BY signed_contract_value DESC, program_name ASC, c.currency ASC;
+GROUP BY COALESCE(pr.name, 'Unknown Program')
+ORDER BY signed_contract_value DESC, program_name ASC;
 ```
 
 ## Net Collected Revenue by Program
@@ -1274,7 +1401,6 @@ WITH payment_revenue AS (
   SELECT
     p.id AS payment_id,
     COALESCE(pr.name, 'Unknown Program') AS program_name,
-    p.currency,
     p.amount AS paid_amount
   FROM payments p
   LEFT JOIN contracts c
@@ -1291,7 +1417,6 @@ WITH payment_revenue AS (
 ), refund_totals AS (
   SELECT
     r.payment_id,
-    r.currency,
     SUM(r.amount) AS refunded_amount
   FROM refunds r
   JOIN payments p
@@ -1300,11 +1425,10 @@ WITH payment_revenue AS (
    AND p.is_deleted = false
   WHERE r.clerk_org_id = :org_id
     AND r.status = 'SUCCEEDED'
-  GROUP BY r.payment_id, r.currency
+  GROUP BY r.payment_id
 )
 SELECT
   pr.program_name,
-  pr.currency,
   COUNT(DISTINCT pr.payment_id) AS paid_payment_count,
   SUM(pr.paid_amount) AS gross_paid_amount,
   SUM(COALESCE(rt.refunded_amount, 0)) AS refunded_amount,
@@ -1312,9 +1436,141 @@ SELECT
 FROM payment_revenue pr
 LEFT JOIN refund_totals rt
   ON rt.payment_id = pr.payment_id
- AND rt.currency = pr.currency
-GROUP BY pr.program_name, pr.currency
-ORDER BY net_collected_revenue DESC, pr.program_name ASC, pr.currency ASC;
+GROUP BY pr.program_name
+ORDER BY net_collected_revenue DESC, pr.program_name ASC;
+```
+
+## Net Collected Revenue by First-Touch Source
+
+Use this for:
+
+- revenue by source
+- net revenue by source
+- collected revenue by source
+- which source generated the most revenue
+- source revenue performance
+
+Default source means first-touch normalized marketing source.
+
+```sql
+WITH payment_revenue AS (
+  SELECT
+    p.id AS payment_id,
+    COALESCE(
+      NULLIF(TRIM(first_ms.name), ''),
+      NULLIF(TRIM(l.first_source_name), ''),
+      'Unknown Source'
+    ) AS first_source,
+    p.amount AS paid_amount
+  FROM payments p
+  LEFT JOIN contracts c
+    ON c.id = p.contract_id
+   AND c.clerk_org_id = p.clerk_org_id
+   AND c.is_deleted = false
+  LEFT JOIN leads l
+    ON l.id = COALESCE(p.lead_id, c.lead_id)
+   AND l.clerk_org_id = p.clerk_org_id
+   AND l.is_deleted = false
+  LEFT JOIN marketing_sources first_ms
+    ON first_ms.id = l.first_source_id
+   AND first_ms.clerk_org_id = l.clerk_org_id
+  WHERE p.clerk_org_id = :org_id
+    AND p.is_deleted = false
+    AND p.status = 'PAID'
+), refund_totals AS (
+  SELECT
+    r.payment_id,
+    SUM(r.amount) AS refunded_amount
+  FROM refunds r
+  JOIN payments p
+    ON p.id = r.payment_id
+   AND p.clerk_org_id = r.clerk_org_id
+   AND p.is_deleted = false
+  WHERE r.clerk_org_id = :org_id
+    AND r.status = 'SUCCEEDED'
+  GROUP BY r.payment_id
+), source_revenue AS (
+  SELECT
+    pr.first_source,
+    COUNT(DISTINCT pr.payment_id) AS paid_payment_count,
+    SUM(pr.paid_amount) AS gross_paid_amount,
+    SUM(COALESCE(rt.refunded_amount, 0)) AS refunded_amount,
+    SUM(pr.paid_amount) - SUM(COALESCE(rt.refunded_amount, 0)) AS net_collected_revenue
+  FROM payment_revenue pr
+  LEFT JOIN refund_totals rt
+    ON rt.payment_id = pr.payment_id
+  GROUP BY pr.first_source
+)
+SELECT
+  first_source,
+  paid_payment_count,
+  gross_paid_amount,
+  refunded_amount,
+  net_collected_revenue,
+  COUNT(*) OVER() AS total_matching_sources,
+  SUM(paid_payment_count) OVER() AS total_paid_payments,
+  SUM(net_collected_revenue) OVER() AS total_net_collected_revenue,
+  CASE
+    WHEN SUM(net_collected_revenue) OVER() = 0 THEN NULL
+    ELSE ROUND(
+      net_collected_revenue * 100.0
+      / SUM(net_collected_revenue) OVER(),
+      2
+    )
+  END AS percentage_of_total_net_revenue
+FROM source_revenue
+ORDER BY net_collected_revenue DESC, first_source ASC;
+```
+
+For a date-range version, use the same joins and source expression, but split the logic into `paid_by_source` and `refunds_by_source` CTEs:
+
+- filter paid revenue with `p.paid_at >= :start_date AND p.paid_at < :end_date`
+- filter succeeded refunds with `COALESCE(r.refunded_at, r.created_at) >= :start_date AND COALESCE(r.refunded_at, r.created_at) < :end_date`
+- `FULL OUTER JOIN` the two CTEs by `source` so refunds completed during the period are included even if the original payment was collected outside the period
+
+For latest-source revenue, use the same pattern but join `last_ms` through `l.last_source_id` and display `last_source`.
+
+For high-level source category revenue, use `COALESCE(CAST(l.source AS text), 'Unknown Source')` and do not join `marketing_sources`.
+
+## Signed Contract Value by First-Touch Source
+
+Use this for source-attributed booked revenue, sales value, signed contract value, or contract value.
+
+```sql
+SELECT
+  COALESCE(
+    NULLIF(TRIM(first_ms.name), ''),
+    NULLIF(TRIM(l.first_source_name), ''),
+    'Unknown Source'
+  ) AS first_source,
+  COUNT(*) AS signed_contract_count,
+  SUM(c.total_value) AS signed_contract_value,
+  SUM(COUNT(*)) OVER() AS total_signed_contracts,
+  SUM(SUM(c.total_value)) OVER() AS total_signed_contract_value,
+  ROUND(
+    SUM(c.total_value) * 100.0
+    / NULLIF(SUM(SUM(c.total_value)) OVER(), 0),
+    2
+  ) AS percentage_of_total_signed_value
+FROM contracts c
+LEFT JOIN leads l
+  ON l.id = c.lead_id
+ AND l.clerk_org_id = c.clerk_org_id
+ AND l.is_deleted = false
+LEFT JOIN marketing_sources first_ms
+  ON first_ms.id = l.first_source_id
+ AND first_ms.clerk_org_id = l.clerk_org_id
+WHERE c.clerk_org_id = :org_id
+  AND c.is_deleted = false
+  AND c.status = 'SIGNED'
+  AND c.total_value IS NOT NULL
+GROUP BY
+  COALESCE(
+    NULLIF(TRIM(first_ms.name), ''),
+    NULLIF(TRIM(l.first_source_name), ''),
+    'Unknown Source'
+  )
+ORDER BY signed_contract_value DESC, first_source ASC;
 ```
 
 ## Signed Contract Value by Closer
@@ -1322,7 +1578,6 @@ ORDER BY net_collected_revenue DESC, pr.program_name ASC, pr.currency ASC;
 ```sql
 SELECT
   COALESCE(NULLIF(TRIM(c.closer_id), ''), 'No Closer') AS closer_id,
-  c.currency,
   COUNT(*) AS signed_contract_count,
   SUM(c.total_value) AS signed_contract_value,
   SUM(COUNT(*)) OVER() AS total_signed_contracts,
@@ -1332,8 +1587,8 @@ WHERE c.clerk_org_id = :org_id
   AND c.is_deleted = false
   AND c.status = 'SIGNED'
   AND c.total_value IS NOT NULL
-GROUP BY COALESCE(NULLIF(TRIM(c.closer_id), ''), 'No Closer'), c.currency
-ORDER BY signed_contract_value DESC, closer_id ASC, c.currency ASC;
+GROUP BY COALESCE(NULLIF(TRIM(c.closer_id), ''), 'No Closer')
+ORDER BY signed_contract_value DESC, closer_id ASC;
 ```
 
 ## Top Actual Closer by Signed Contract Value
@@ -1346,13 +1601,12 @@ Use this when the user asks:
 
 Exclude missing closer values. Do not return `No Closer` as the top closer unless the user explicitly asks to include contracts without a closer.
 
-This query returns all closers tied for the highest signed contract value within each currency.
+This query returns all closers tied for the highest signed contract value.
 
 ```sql
 WITH closer_values AS (
   SELECT
     NULLIF(TRIM(c.closer_id), '') AS closer_id,
-    c.currency,
     COUNT(*) AS signed_contract_count,
     SUM(c.total_value) AS signed_contract_value
   FROM contracts c
@@ -1361,24 +1615,22 @@ WITH closer_values AS (
     AND c.status = 'SIGNED'
     AND c.total_value IS NOT NULL
     AND NULLIF(TRIM(c.closer_id), '') IS NOT NULL
-  GROUP BY NULLIF(TRIM(c.closer_id), ''), c.currency
+  GROUP BY NULLIF(TRIM(c.closer_id), '')
 ), ranked AS (
   SELECT
     closer_id,
-    currency,
     signed_contract_count,
     signed_contract_value,
-    RANK() OVER (PARTITION BY currency ORDER BY signed_contract_value DESC) AS value_rank
+    RANK() OVER (ORDER BY signed_contract_value DESC) AS value_rank
   FROM closer_values
 )
 SELECT
   closer_id,
-  currency,
   signed_contract_count,
   signed_contract_value
 FROM ranked
 WHERE value_rank = 1
-ORDER BY currency ASC, closer_id ASC;
+ORDER BY closer_id ASC;
 ```
 
 ## List Signed Contracts
@@ -1464,48 +1716,41 @@ LIMIT 50;
 ```sql
 SELECT
   CAST(r.status AS text) AS refund_status,
-  r.currency,
   COUNT(*) AS refund_count,
   SUM(r.amount) AS refund_amount,
   SUM(COUNT(*)) OVER() AS total_matching_refunds,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM refunds r
 WHERE r.clerk_org_id = :org_id
-GROUP BY CAST(r.status AS text), r.currency
-ORDER BY refund_count DESC, refund_status ASC, r.currency ASC;
+GROUP BY CAST(r.status AS text)
+ORDER BY refund_count DESC, refund_status ASC;
 ```
 
 ## Succeeded Refund Amount
 
 ```sql
 SELECT
-  r.currency,
   COUNT(*) AS succeeded_refund_count,
   SUM(r.amount) AS succeeded_refund_amount
 FROM refunds r
 WHERE r.clerk_org_id = :org_id
-  AND r.status = 'SUCCEEDED'
-GROUP BY r.currency
-ORDER BY succeeded_refund_amount DESC, r.currency ASC;
+  AND r.status = 'SUCCEEDED';
 ```
 
-## Refund Rate by Currency
+## Refund Rate
 
-Refund rate compares succeeded refund amount against paid payment amount by currency.
+Refund rate compares succeeded refund amount against paid payment amount.
 
 ```sql
 WITH paid_payments AS (
   SELECT
-    p.currency,
     SUM(p.amount) AS gross_paid_amount
   FROM payments p
   WHERE p.clerk_org_id = :org_id
     AND p.is_deleted = false
     AND p.status = 'PAID'
-  GROUP BY p.currency
 ), succeeded_refunds AS (
   SELECT
-    r.currency,
     SUM(r.amount) AS refunded_amount
   FROM refunds r
   JOIN payments p
@@ -1514,17 +1759,13 @@ WITH paid_payments AS (
    AND p.is_deleted = false
   WHERE r.clerk_org_id = :org_id
     AND r.status = 'SUCCEEDED'
-  GROUP BY r.currency
 )
 SELECT
-  pp.currency,
   pp.gross_paid_amount,
   COALESCE(sr.refunded_amount, 0) AS refunded_amount,
   ROUND(COALESCE(sr.refunded_amount, 0) * 100.0 / NULLIF(pp.gross_paid_amount, 0), 2) AS refund_rate_percent
 FROM paid_payments pp
-LEFT JOIN succeeded_refunds sr
-  ON sr.currency = pp.currency
-ORDER BY refund_rate_percent DESC NULLS LAST, pp.currency ASC;
+CROSS JOIN succeeded_refunds sr;
 ```
 
 ## Invoice Breakdown by Status
@@ -1532,15 +1773,14 @@ ORDER BY refund_rate_percent DESC NULLS LAST, pp.currency ASC;
 ```sql
 SELECT
   CAST(i.status AS text) AS invoice_status,
-  i.currency,
   COUNT(*) AS invoice_count,
   SUM(i.amount) AS invoice_amount,
   SUM(COUNT(*)) OVER() AS total_matching_invoices,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM invoices i
 WHERE i.clerk_org_id = :org_id
-GROUP BY CAST(i.status AS text), i.currency
-ORDER BY invoice_count DESC, invoice_status ASC, i.currency ASC;
+GROUP BY CAST(i.status AS text)
+ORDER BY invoice_count DESC, invoice_status ASC;
 ```
 
 ## Payment Link Breakdown by Status
@@ -1605,7 +1845,6 @@ WHERE p.clerk_org_id = :org_id
 ```sql
 SELECT
   CAST(cs.status AS text) AS subscription_status,
-  cs.currency,
   COUNT(*) AS subscription_count,
   SUM(cs.amount_per_cycle) AS total_amount_per_cycle,
   SUM(COUNT(*)) OVER() AS total_matching_subscriptions,
@@ -1616,15 +1855,14 @@ JOIN contracts c
  AND c.is_deleted = false
 WHERE c.clerk_org_id = :org_id
   AND cs.is_deleted = false
-GROUP BY CAST(cs.status AS text), cs.currency
-ORDER BY subscription_count DESC, subscription_status ASC, cs.currency ASC;
+GROUP BY CAST(cs.status AS text)
+ORDER BY subscription_count DESC, subscription_status ASC;
 ```
 
-## Active Subscription MRR by Currency
+## Active Subscription MRR
 
 ```sql
 SELECT
-  cs.currency,
   COUNT(*) AS active_subscription_count,
   ROUND(SUM(
     CASE
@@ -1639,16 +1877,13 @@ JOIN contracts c
  AND c.is_deleted = false
 WHERE c.clerk_org_id = :org_id
   AND cs.is_deleted = false
-  AND cs.status = 'ACTIVE'
-GROUP BY cs.currency
-ORDER BY mrr DESC, cs.currency ASC;
+  AND cs.status = 'ACTIVE';
 ```
 
 ## Subscriptions Past Due
 
 ```sql
 SELECT
-  cs.currency,
   COUNT(*) AS past_due_subscription_count,
   SUM(cs.amount_per_cycle) AS amount_per_cycle_past_due
 FROM contract_subscriptions cs
@@ -1657,9 +1892,7 @@ JOIN contracts c
  AND c.is_deleted = false
 WHERE c.clerk_org_id = :org_id
   AND cs.is_deleted = false
-  AND cs.status = 'PAST_DUE'
-GROUP BY cs.currency
-ORDER BY amount_per_cycle_past_due DESC, cs.currency ASC;
+  AND cs.status = 'PAST_DUE';
 ```
 
 ## List Past Due Subscriptions
@@ -1730,29 +1963,25 @@ ORDER BY subscription_link_count DESC, subscription_link_status ASC;
 SELECT
   CAST(up.status AS text) AS unmatched_payment_status,
   CAST(up.provider AS text) AS payment_provider,
-  up.currency,
   COUNT(*) AS unmatched_payment_count,
   SUM(up.amount) AS unmatched_payment_amount,
   SUM(COUNT(*)) OVER() AS total_matching_unmatched_payments,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM unmatched_payments up
 WHERE up.clerk_org_id = :org_id
-GROUP BY CAST(up.status AS text), CAST(up.provider AS text), up.currency
-ORDER BY unmatched_payment_count DESC, unmatched_payment_status ASC, payment_provider ASC, up.currency ASC;
+GROUP BY CAST(up.status AS text), CAST(up.provider AS text)
+ORDER BY unmatched_payment_count DESC, unmatched_payment_status ASC, payment_provider ASC;
 ```
 
 ## Pending Unmatched Payments
 
 ```sql
 SELECT
-  up.currency,
   COUNT(*) AS pending_unmatched_payment_count,
   SUM(up.amount) AS pending_unmatched_payment_amount
 FROM unmatched_payments up
 WHERE up.clerk_org_id = :org_id
-  AND up.status = 'PENDING'
-GROUP BY up.currency
-ORDER BY pending_unmatched_payment_amount DESC, up.currency ASC;
+  AND up.status = 'PENDING';
 ```
 
 ## List Pending Unmatched Payments
@@ -1786,7 +2015,6 @@ Use this for daily collected revenue trend. This returns gross paid amount only.
 ```sql
 SELECT
   DATE_TRUNC('day', p.paid_at)::date AS payment_date,
-  p.currency,
   COUNT(*) AS paid_payment_count,
   SUM(p.amount) AS gross_paid_amount
 FROM payments p
@@ -1794,8 +2022,8 @@ WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
   AND p.status = 'PAID'
   AND p.paid_at IS NOT NULL
-GROUP BY DATE_TRUNC('day', p.paid_at)::date, p.currency
-ORDER BY payment_date ASC, p.currency ASC;
+GROUP BY DATE_TRUNC('day', p.paid_at)::date
+ORDER BY payment_date ASC;
 ```
 
 ## Revenue Trend by Day in a Date Range
@@ -1803,7 +2031,6 @@ ORDER BY payment_date ASC, p.currency ASC;
 ```sql
 SELECT
   DATE_TRUNC('day', p.paid_at)::date AS payment_date,
-  p.currency,
   COUNT(*) AS paid_payment_count,
   SUM(p.amount) AS gross_paid_amount
 FROM payments p
@@ -1812,15 +2039,15 @@ WHERE p.clerk_org_id = :org_id
   AND p.status = 'PAID'
   AND p.paid_at >= :start_date
   AND p.paid_at < :end_date
-GROUP BY DATE_TRUNC('day', p.paid_at)::date, p.currency
-ORDER BY payment_date ASC, p.currency ASC;
+GROUP BY DATE_TRUNC('day', p.paid_at)::date
+ORDER BY payment_date ASC;
 ```
 
 ## Monthly Revenue Trend with Percentage Change
 
 Use this when the user asks for monthly revenue growth, monthly revenue change, or month-over-month revenue trend.
 
-This pattern is currency-specific and uses gross paid amount.
+This pattern uses gross paid amount and returns one EUR series by default.
 
 ```sql
 WITH months AS (
@@ -1829,24 +2056,13 @@ WITH months AS (
     DATE_TRUNC('month', (:end_date::timestamp - INTERVAL '1 day'))::date,
     INTERVAL '1 month'
   )::date AS payment_month
-), currencies AS (
-  SELECT DISTINCT p.currency
-  FROM payments p
-  WHERE p.clerk_org_id = :org_id
-    AND p.is_deleted = false
-    AND p.status = 'PAID'
-    AND p.paid_at >= :start_date
-    AND p.paid_at < :end_date
 ), monthly_grid AS (
   SELECT
-    m.payment_month,
-    c.currency
+    m.payment_month
   FROM months m
-  CROSS JOIN currencies c
 ), monthly_counts AS (
   SELECT
     DATE_TRUNC('month', p.paid_at)::date AS payment_month,
-    p.currency,
     COUNT(*) AS paid_payment_count,
     SUM(p.amount) AS gross_paid_amount
   FROM payments p
@@ -1855,32 +2071,27 @@ WITH months AS (
     AND p.status = 'PAID'
     AND p.paid_at >= :start_date
     AND p.paid_at < :end_date
-  GROUP BY DATE_TRUNC('month', p.paid_at)::date, p.currency
+  GROUP BY DATE_TRUNC('month', p.paid_at)::date
 ), monthly_filled AS (
   SELECT
     mg.payment_month,
-    mg.currency,
     COALESCE(mc.paid_payment_count, 0) AS paid_payment_count,
     COALESCE(mc.gross_paid_amount, 0) AS gross_paid_amount
   FROM monthly_grid mg
   LEFT JOIN monthly_counts mc
     ON mc.payment_month = mg.payment_month
-   AND mc.currency = mg.currency
 ), monthly_with_previous AS (
   SELECT
     payment_month,
-    currency,
     paid_payment_count,
     gross_paid_amount,
     LAG(gross_paid_amount) OVER (
-      PARTITION BY currency
       ORDER BY payment_month ASC
     ) AS previous_period_gross_paid_amount
   FROM monthly_filled
 )
 SELECT
   payment_month,
-  currency,
   paid_payment_count,
   gross_paid_amount,
   previous_period_gross_paid_amount,
@@ -1891,9 +2102,9 @@ SELECT
       2
     )
   END AS percentage_change_from_previous_period,
-  SUM(gross_paid_amount) OVER (PARTITION BY currency) AS total_gross_paid_amount_for_currency
+  SUM(gross_paid_amount) OVER() AS total_gross_paid_amount
 FROM monthly_with_previous
-ORDER BY payment_month ASC, currency ASC;
+ORDER BY payment_month ASC;
 ```
 
 ## Monthly Signed Contract Value Trend with Percentage Change
@@ -1907,24 +2118,13 @@ WITH months AS (
     DATE_TRUNC('month', (:end_date::timestamp - INTERVAL '1 day'))::date,
     INTERVAL '1 month'
   )::date AS signed_month
-), currencies AS (
-  SELECT DISTINCT c.currency
-  FROM contracts c
-  WHERE c.clerk_org_id = :org_id
-    AND c.is_deleted = false
-    AND c.status = 'SIGNED'
-    AND c.signed_at >= :start_date
-    AND c.signed_at < :end_date
 ), monthly_grid AS (
   SELECT
-    m.signed_month,
-    cur.currency
+    m.signed_month
   FROM months m
-  CROSS JOIN currencies cur
 ), monthly_counts AS (
   SELECT
     DATE_TRUNC('month', c.signed_at)::date AS signed_month,
-    c.currency,
     COUNT(*) AS signed_contract_count,
     SUM(c.total_value) AS signed_contract_value
   FROM contracts c
@@ -1934,32 +2134,27 @@ WITH months AS (
     AND c.total_value IS NOT NULL
     AND c.signed_at >= :start_date
     AND c.signed_at < :end_date
-  GROUP BY DATE_TRUNC('month', c.signed_at)::date, c.currency
+  GROUP BY DATE_TRUNC('month', c.signed_at)::date
 ), monthly_filled AS (
   SELECT
     mg.signed_month,
-    mg.currency,
     COALESCE(mc.signed_contract_count, 0) AS signed_contract_count,
     COALESCE(mc.signed_contract_value, 0) AS signed_contract_value
   FROM monthly_grid mg
   LEFT JOIN monthly_counts mc
     ON mc.signed_month = mg.signed_month
-   AND mc.currency = mg.currency
 ), monthly_with_previous AS (
   SELECT
     signed_month,
-    currency,
     signed_contract_count,
     signed_contract_value,
     LAG(signed_contract_value) OVER (
-      PARTITION BY currency
       ORDER BY signed_month ASC
     ) AS previous_period_signed_contract_value
   FROM monthly_filled
 )
 SELECT
   signed_month,
-  currency,
   signed_contract_count,
   signed_contract_value,
   previous_period_signed_contract_value,
@@ -1970,9 +2165,9 @@ SELECT
       2
     )
   END AS percentage_change_from_previous_period,
-  SUM(signed_contract_value) OVER (PARTITION BY currency) AS total_signed_contract_value_for_currency
+  SUM(signed_contract_value) OVER() AS total_signed_contract_value
 FROM monthly_with_previous
-ORDER BY signed_month ASC, currency ASC;
+ORDER BY signed_month ASC;
 ```
 
 ## Mistakes To Avoid
@@ -1981,7 +2176,7 @@ ORDER BY signed_month ASC, currency ASC;
 - Do not add `is_deleted` filters to `refunds`, `invoices`, or `unmatched_payments`, because those fields do not exist in the current schema.
 - Do not calculate collected revenue from contracts. Use payments for collected revenue.
 - Do not calculate signed contract value from payments. Use signed contracts and `contracts.total_value`.
-- Do not mix multiple currencies into one total unless the user explicitly asks for all-currency raw totals.
+- Do not group or split monetary aggregates by currency unless the user explicitly asks for a currency breakdown or reconciliation by currency.
 - Do not claim net revenue unless succeeded refunds have been subtracted.
 - Do not use `payments.created_at` as payment revenue timing unless the user asks when payment records were created.
 - Do not use `contracts.created_at` as signed revenue timing. Use `signed_at` for signed contract value.

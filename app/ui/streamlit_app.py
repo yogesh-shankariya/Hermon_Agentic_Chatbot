@@ -57,6 +57,9 @@ APPOINTMENT_INPUT_QUESTIONS_PATH = (
 LEAD_INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "lead_analytics_clean_test_questions.csv"
 LEAD_360_INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "lead_360_clean_test_questions.csv"
 REVENUE_INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "revenue_analytics_clean_test_questions.csv"
+MULTI_SKILLS_INPUT_QUESTIONS_PATH = (
+    TESTING_INPUT_DIR / "multi_skills_analytics_clean_test_questions.csv"
+)
 BOT_LOGO_PATH = PROJECT_ROOT / "app" / "ui" / "assets" / "hermon_bot.svg"
 PAGE_TITLE = "Hermon Q&A Agent"
 PAGE_ICON = str(BOT_LOGO_PATH)
@@ -86,6 +89,13 @@ SECTION_LABELS_TO_STRIP = {
     "tool output",
 }
 QUESTION_PICKER_CONFIGS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "multi_skills_analytics",
+        "title": "Multi Skills Analytics",
+        "selectbox_label": "Multi Skills Analytics coverage",
+        "placeholder": "Choose a supported Multi Skills Analytics question",
+        "path": MULTI_SKILLS_INPUT_QUESTIONS_PATH,
+    },
     {
         "key": "lead_analytics",
         "title": "Lead Analytics",

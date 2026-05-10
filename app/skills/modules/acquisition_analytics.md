@@ -36,8 +36,32 @@ Do not use this skill for:
 - Revenue, contracts, payments, invoices, refunds, subscriptions, payment links, or payment proofs. Use `revenue_analytics`.
 - Provider integration health, webhook troubleshooting, credential validation, API keys, raw webhook payloads, raw provider payloads, or connection status. Use an integration/admin skill.
 
-
 If the user question requires tables outside `opt_ins`, `opt_in_question_answers`, `traffic_attributions`, `leads`, or `sales_statuses`, do not use this skill unless the required logic is explicitly listed in this file.
+
+## Cross-Skill SQL Composition Rules
+
+This skill is the primary skill when the main metric is opt-in count, form submission count, unique leads from opt-ins, acquisition source performance, UTM performance, landing page performance, referrer performance, provider form performance, form question inventory, form answer distribution, or acquisition-to-current-lead-status conversion.
+
+When `acquisition_analytics` is primary:
+- This skill controls opt-in metric definitions, form submission logic, UTM logic, landing page/referrer logic, acquisition timing, provider form logic, form-answer logic, and opt-in aggregation grain.
+- Supporting skills may be loaded only for lead status, appointment, or revenue context when explicitly needed.
+- Do not let a supporting skill override acquisition metric logic, opt-in timing, UTM fields, landing page/referrer fields, or form-answer logic.
+
+Allowed supporting skill usage:
+- Use `lead_analytics` as supporting when acquisition questions need current lead status, won/lost lead status, lead source context, lead owner, lead setter, or lead identity context.
+- Use `appointment_analytics` as supporting only when acquisition questions ask for appointment outcomes, booked appointment count, no-show rate, event type, host, setter, or call metrics by acquisition dimension.
+- Use `revenue_analytics` as supporting only when the user asks for revenue by acquisition dimension and an approved attribution rule is explicitly defined.
+- Do not invent revenue attribution from opt-ins, UTMs, landing pages, referrers, forms, or form answers.
+
+Conflict rule:
+- If this skill is primary, follow `acquisition_analytics` for acquisition metric logic, opt-in timing, UTM fields, landing page/referrer fields, provider form logic, and form-answer logic.
+- Supporting skills must not override acquisition metric logic.
+
+Examples:
+- "Won leads by UTM campaign" -> primary `acquisition_analytics`, supporting `lead_analytics`.
+- "Opt-ins by current lead status" -> primary `acquisition_analytics`, supporting `lead_analytics`.
+- "No-show rate by UTM campaign" -> primary `appointment_analytics`, supporting `acquisition_analytics` when measuring appointment no-show rate by acquisition dimension.
+- "Revenue by UTM campaign" -> unsupported unless an approved revenue-to-UTM attribution rule is added.
 
 ## SQL Generation Rules
 

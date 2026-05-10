@@ -46,6 +46,31 @@ Do not use this skill for:
 
 If the user question requires tables outside `appointments`, `appointment_event_types`, `sales_statuses`, `leads`, or `fathom_call_records`, do not use this skill unless the required logic is explicitly listed in this file.
 
+## Cross-Skill SQL Composition Rules
+
+This skill is the primary skill when the main metric is appointment count, booked call count, scheduled call count, upcoming appointments, past appointments, completed calls, appointment no-show count, appointment no-show rate, appointment outcome, event type, host performance, setter appointment performance, Fathom coverage, Fathom call duration, Fathom objections, Fathom action items, or Fathom summaries.
+
+When `appointment_analytics` is primary:
+- This skill controls appointment metric definitions, base table, appointment date field, no-show logic, event type logic, Fathom logic, host/setter appointment logic, and appointment aggregation grain.
+- Supporting skills may be loaded only for dimensions, source/status context, or safe join interpretation.
+- Do not let a supporting skill override appointment count, no-show rate, appointment timing, event type logic, Fathom logic, or appointment grain.
+
+Allowed supporting skill usage:
+- Use `lead_analytics` as supporting when appointment or no-show questions are broken down by lead source, first source, last source, marketing source, lead status, lead owner, or lead setter.
+- Use `acquisition_analytics` as supporting only when appointment questions are broken down by UTM campaign, UTM source, UTM medium, landing page, referrer, form, opt-in source, or acquisition source and a valid join path exists.
+- Use `revenue_analytics` as supporting only when the user asks to compare appointment metrics with revenue, payment, or contract metrics.
+- Do not mix revenue into appointment SQL unless an explicit join and metric rule is available.
+
+Conflict rule:
+- If this skill is primary, follow `appointment_analytics` for appointment count, no-show rate, appointment timing, Fathom logic, and appointment grain.
+- Supporting skills must not override appointment metric logic.
+
+Examples:
+- "No-show rate by source" -> primary `appointment_analytics`, supporting `lead_analytics`.
+- "Appointments by first source" -> primary `appointment_analytics`, supporting `lead_analytics`.
+- "Appointments by UTM campaign" -> primary `appointment_analytics`, supporting `acquisition_analytics` only if a valid join path exists.
+- "Revenue after appointments by source" -> unsupported unless an approved appointment-to-revenue attribution rule is added.
+
 ## SQL Generation Rules
 
 Generate exactly one read-only PostgreSQL SQL statement.
