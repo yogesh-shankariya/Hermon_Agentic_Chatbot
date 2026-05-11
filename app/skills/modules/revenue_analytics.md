@@ -271,7 +271,7 @@ Important columns:
 | `closer_id` | Closer user ID. | Closer contract value/performance. |
 | `setter_id` | Setter user ID. | Setter contract value/performance. |
 | `type` | Contract payment type enum. | PIF, payment plan, or subscription. |
-| `total_value` | Contract value. | Signed contract value, pipeline contract value. |
+| `total_value` | Contract value stored in minor units. | Signed contract value, pipeline contract value. Divide by 100.0 for business-facing amounts. |
 | `currency` | Contract currency. | Currency-specific reporting. |
 | `status` | Contract status enum. | Contract funnel and signed/voided/sent analysis. |
 | `created_with_template` | Whether created from template. | Setup/admin context. |
@@ -311,7 +311,7 @@ Important columns:
 | `type` | Payment type enum. | First payment, deposit, instalment, or subscription cycle. |
 | `payment_provider` | Payment provider enum. | Stripe, Whop, Manual, Mollie reporting. |
 | `status` | Payment status enum. | Paid, pending, failed, lost, refunded, draft analysis. |
-| `amount` | Payment amount. | Revenue and outstanding amount. |
+| `amount` | Payment amount stored in minor units. | Revenue and outstanding amount. Divide by 100.0 for business-facing amounts. |
 | `due_date` | Payment due date. | Due, overdue, due-soon analysis. |
 | `paid_at` | Payment paid datetime. | Collected revenue timing. |
 | `currency` | Payment currency. | Currency-specific reporting. |
@@ -342,13 +342,13 @@ Important columns:
 | `id` | Subscription primary key. | Join key. |
 | `contract_id` | Contract linked to subscription. | Join to `contracts.id`. |
 | `billing_interval` | Billing interval enum. | MRR normalization. |
-| `amount_per_cycle` | Subscription amount per billing cycle. | MRR and subscription value. |
+| `amount_per_cycle` | Subscription amount per billing cycle stored in minor units. | MRR and subscription value. Divide by 100.0 for business-facing amounts. |
 | `currency` | Subscription currency. | Currency-specific subscription reporting. |
 | `status` | Subscription status enum. | Active, past due, cancelled analysis. |
 | `payment_provider` | Payment provider enum. | Subscription provider reporting. |
 | `external_subscription_id` | Provider subscription ID. | Provider/debug context only. |
 | `billing_cycles_paid` | Number of paid billing cycles. | Subscription collection context. |
-| `total_collected` | Total collected through subscription. | Subscription collection reporting. |
+| `total_collected` | Total collected through subscription, stored in minor units. | Subscription collection reporting. Divide by 100.0 for business-facing amounts. |
 | `current_period_start` | Current period start. | Subscription period reporting. |
 | `current_period_end` | Current period end. | Renewal/period reporting. |
 | `next_billing_date` | Next billing date. | Upcoming billing analysis. |
@@ -453,7 +453,7 @@ Important columns:
 | `id` | Refund primary key. | Refund identity. |
 | `payment_id` | Payment linked to refund. | Join to `payments.id`. |
 | `clerk_org_id` | Tenant/organization ID. | Required filter. |
-| `amount` | Refund amount. | Refund totals and net revenue calculation. |
+| `amount` | Refund amount stored in minor units. | Refund totals and net revenue calculation. Divide by 100.0 for business-facing amounts. |
 | `currency` | Refund currency. | Currency-specific reporting. |
 | `status` | Refund status enum. | Initiated, succeeded, failed analysis. |
 | `reason` | Refund reason. | Refund reason context/list. |
@@ -481,7 +481,7 @@ Important columns:
 | `clerk_org_id` | Tenant/organization ID. | Required filter. |
 | `from_org_id` | Sender organization ID. | Usually not needed. |
 | `to_client_id` | Lead/client ID. | Join to `leads.id`. |
-| `amount` | Invoice amount. | Invoice totals. |
+| `amount` | Invoice amount stored in minor units. | Invoice totals. Divide by 100.0 for business-facing amounts. |
 | `currency` | Invoice currency. | Currency-specific reporting. |
 | `status` | Invoice status enum. | Paid/refunded invoice reporting. |
 | `issued_at` | Invoice issue datetime. | Invoice timing. |
@@ -502,7 +502,7 @@ Important columns:
 | `clerk_org_id` | Tenant/organization ID. | Required filter. |
 | `provider` | Payment provider enum. | Provider analysis. |
 | `external_payment_id` | Provider payment ID. | Provider/debug context only. |
-| `amount` | Payment amount. | Unmatched amount analysis. |
+| `amount` | Payment amount stored in minor units. | Unmatched amount analysis. Divide by 100.0 for business-facing amounts. |
 | `currency` | Currency. | Currency-specific reporting. |
 | `status` | Unmatched status enum. | Pending, attached, ignored analysis. |
 | `customer_email` | Provider customer email. | Contact detail only when explicitly requested. |
@@ -736,6 +736,35 @@ IGNORED
 
 ## Business Interpretation Rules
 
+## Monetary Storage and Reporting Rules
+
+Money-like database columns are stored in minor units even when the database type is decimal.
+
+Always divide these fields by `100.0` when returning business-facing money values:
+
+- `payments.amount`
+- `refunds.amount`
+- `contracts.total_value`
+- `contract_subscriptions.amount_per_cycle`
+- `contract_subscriptions.total_collected`
+- `invoices.amount`
+- `unmatched_payments.amount`
+- `programs.price_minor`
+
+For aggregate queries, divide the aggregate result:
+
+```sql
+SUM(p.amount) / 100.0 AS gross_paid_amount
+```
+
+For list-style queries, return the converted amount under the normal business column name:
+
+```sql
+p.amount / 100.0 AS amount
+```
+
+Only expose raw stored minor-unit values when the user explicitly asks for raw database/debug values, and name those columns with a `_minor` suffix.
+
 ## Default Revenue Meaning
 
 When the user says "revenue", "collected revenue", "how much money collected", or "payment revenue" without further detail, use paid payments as the base and subtract succeeded refunds.
@@ -905,9 +934,9 @@ Normalize `amount_per_cycle` to monthly amount using `billing_interval`:
 
 ```sql
 CASE
-  WHEN cs.billing_interval = 'WEEKLY' THEN cs.amount_per_cycle * 52.0 / 12.0
-  WHEN cs.billing_interval = 'MONTHLY' THEN cs.amount_per_cycle
-  WHEN cs.billing_interval = 'YEARLY' THEN cs.amount_per_cycle / 12.0
+  WHEN cs.billing_interval = 'WEEKLY' THEN (cs.amount_per_cycle / 100.0) * 52.0 / 12.0
+  WHEN cs.billing_interval = 'MONTHLY' THEN cs.amount_per_cycle / 100.0
+  WHEN cs.billing_interval = 'YEARLY' THEN (cs.amount_per_cycle / 100.0) / 12.0
   ELSE NULL
 END
 ```
@@ -995,7 +1024,7 @@ For signed contract value by source:
 
 - use signed contracts as the base
 - use `c.signed_at` for signed value timing
-- use `c.total_value`
+- use `c.total_value / 100.0`
 - do not subtract refunds because signed value is not collected cash
 
 Do not use `opt_ins`, `traffic_attributions`, UTM fields, landing pages, referrers, or form answers in this skill. If the user asks for revenue by UTM campaign, landing page, referrer, ad, or form-answer source, say that revenue attribution for those acquisition dimensions is not supported yet.
@@ -1064,6 +1093,8 @@ For list-style subscription queries, default output fields are:
 
 Do not include lead email, lead phone, checkout URLs, external payment IDs, external subscription IDs, file keys, or webhook event IDs unless the user explicitly asks for those details.
 
+The list-style `amount`, `total_value`, and `amount_per_cycle` fields should be returned as major-unit business values by default, not raw stored minor units.
+
 Use `COUNT(*) OVER() AS total_matching_rows` for list-style queries with a `LIMIT`, so the final answer can show the exact total before the limited rows.
 
 Use `LIMIT :limit` when the application passes a limit.
@@ -1095,14 +1126,14 @@ Use this for default revenue questions.
 ```sql
 WITH paid_payments AS (
   SELECT
-    SUM(p.amount) AS gross_paid_amount
+    SUM(p.amount) / 100.0 AS gross_paid_amount
   FROM payments p
   WHERE p.clerk_org_id = :org_id
     AND p.is_deleted = false
     AND p.status = 'PAID'
 ), succeeded_refunds AS (
   SELECT
-    SUM(r.amount) AS refunded_amount
+    SUM(r.amount) / 100.0 AS refunded_amount
   FROM refunds r
   JOIN payments p
     ON p.id = r.payment_id
@@ -1124,7 +1155,7 @@ CROSS JOIN succeeded_refunds sr;
 ```sql
 WITH paid_payments AS (
   SELECT
-    SUM(p.amount) AS gross_paid_amount
+    SUM(p.amount) / 100.0 AS gross_paid_amount
   FROM payments p
   WHERE p.clerk_org_id = :org_id
     AND p.is_deleted = false
@@ -1133,7 +1164,7 @@ WITH paid_payments AS (
     AND p.paid_at < :end_date
 ), succeeded_refunds AS (
   SELECT
-    SUM(r.amount) AS refunded_amount
+    SUM(r.amount) / 100.0 AS refunded_amount
   FROM refunds r
   JOIN payments p
     ON p.id = r.payment_id
@@ -1156,7 +1187,7 @@ CROSS JOIN succeeded_refunds sr;
 
 ```sql
 SELECT
-  SUM(p.amount) AS gross_paid_amount,
+  SUM(p.amount) / 100.0 AS gross_paid_amount,
   COUNT(*) AS paid_payment_count
 FROM payments p
 WHERE p.clerk_org_id = :org_id
@@ -1170,7 +1201,7 @@ WHERE p.clerk_org_id = :org_id
 SELECT
   CAST(p.payment_provider AS text) AS payment_provider,
   COUNT(*) AS paid_payment_count,
-  SUM(p.amount) AS gross_paid_amount,
+  SUM(p.amount) / 100.0 AS gross_paid_amount,
   SUM(COUNT(*)) OVER() AS total_paid_payments,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_paid_payments
 FROM payments p
@@ -1187,7 +1218,7 @@ ORDER BY gross_paid_amount DESC, payment_provider ASC;
 SELECT
   CAST(p.status AS text) AS payment_status,
   COUNT(*) AS payment_count,
-  SUM(p.amount) AS total_amount,
+  SUM(p.amount) / 100.0 AS total_amount,
   SUM(COUNT(*)) OVER() AS total_matching_payments,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM payments p
@@ -1203,7 +1234,7 @@ ORDER BY payment_count DESC, payment_status ASC;
 SELECT
   CAST(p.type AS text) AS payment_type,
   COUNT(*) AS payment_count,
-  SUM(p.amount) AS total_amount,
+  SUM(p.amount) / 100.0 AS total_amount,
   SUM(COUNT(*)) OVER() AS total_matching_payments,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM payments p
@@ -1218,7 +1249,7 @@ ORDER BY payment_count DESC, payment_type ASC;
 ```sql
 SELECT
   COUNT(*) AS outstanding_payment_count,
-  SUM(p.amount) AS outstanding_amount
+  SUM(p.amount) / 100.0 AS outstanding_amount
 FROM payments p
 WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
@@ -1230,7 +1261,7 @@ WHERE p.clerk_org_id = :org_id
 ```sql
 SELECT
   COUNT(*) AS overdue_payment_count,
-  SUM(p.amount) AS overdue_amount
+  SUM(p.amount) / 100.0 AS overdue_amount
 FROM payments p
 WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
@@ -1254,7 +1285,7 @@ SELECT
   CAST(p.type AS text) AS payment_type,
   CAST(p.status AS text) AS payment_status,
   CAST(p.payment_provider AS text) AS payment_provider,
-  p.amount,
+  p.amount / 100.0 AS amount,
   p.currency,
   p.due_date,
   p.paid_at,
@@ -1288,7 +1319,7 @@ LIMIT 50;
 ```sql
 SELECT
   COUNT(*) AS due_payment_count,
-  SUM(p.amount) AS due_amount
+  SUM(p.amount) / 100.0 AS due_amount
 FROM payments p
 WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
@@ -1303,7 +1334,7 @@ WHERE p.clerk_org_id = :org_id
 SELECT
   CAST(c.status AS text) AS contract_status,
   COUNT(*) AS contract_count,
-  SUM(COALESCE(c.total_value, 0)) AS total_contract_value,
+  SUM(COALESCE(c.total_value, 0)) / 100.0 AS total_contract_value,
   SUM(COUNT(*)) OVER() AS total_matching_contracts,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM contracts c
@@ -1318,7 +1349,7 @@ ORDER BY contract_count DESC, contract_status ASC;
 ```sql
 SELECT
   COUNT(*) AS signed_contract_count,
-  SUM(c.total_value) AS signed_contract_value
+  SUM(c.total_value) / 100.0 AS signed_contract_value
 FROM contracts c
 WHERE c.clerk_org_id = :org_id
   AND c.is_deleted = false
@@ -1331,7 +1362,7 @@ WHERE c.clerk_org_id = :org_id
 ```sql
 SELECT
   COUNT(*) AS signed_contract_count,
-  SUM(c.total_value) AS signed_contract_value
+  SUM(c.total_value) / 100.0 AS signed_contract_value
 FROM contracts c
 WHERE c.clerk_org_id = :org_id
   AND c.is_deleted = false
@@ -1378,7 +1409,7 @@ WHERE c.clerk_org_id = :org_id
 SELECT
   COALESCE(pr.name, 'Unknown Program') AS program_name,
   COUNT(*) AS signed_contract_count,
-  SUM(c.total_value) AS signed_contract_value,
+  SUM(c.total_value) / 100.0 AS signed_contract_value,
   SUM(COUNT(*)) OVER() AS total_signed_contracts,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_signed_contracts
 FROM contracts c
@@ -1401,7 +1432,7 @@ WITH payment_revenue AS (
   SELECT
     p.id AS payment_id,
     COALESCE(pr.name, 'Unknown Program') AS program_name,
-    p.amount AS paid_amount
+    p.amount / 100.0 AS paid_amount
   FROM payments p
   LEFT JOIN contracts c
     ON c.id = p.contract_id
@@ -1417,7 +1448,7 @@ WITH payment_revenue AS (
 ), refund_totals AS (
   SELECT
     r.payment_id,
-    SUM(r.amount) AS refunded_amount
+    SUM(r.amount) / 100.0 AS refunded_amount
   FROM refunds r
   JOIN payments p
     ON p.id = r.payment_id
@@ -1461,7 +1492,7 @@ WITH payment_revenue AS (
       NULLIF(TRIM(l.first_source_name), ''),
       'Unknown Source'
     ) AS first_source,
-    p.amount AS paid_amount
+    p.amount / 100.0 AS paid_amount
   FROM payments p
   LEFT JOIN contracts c
     ON c.id = p.contract_id
@@ -1480,7 +1511,7 @@ WITH payment_revenue AS (
 ), refund_totals AS (
   SELECT
     r.payment_id,
-    SUM(r.amount) AS refunded_amount
+    SUM(r.amount) / 100.0 AS refunded_amount
   FROM refunds r
   JOIN payments p
     ON p.id = r.payment_id
@@ -1544,9 +1575,9 @@ SELECT
     'Unknown Source'
   ) AS first_source,
   COUNT(*) AS signed_contract_count,
-  SUM(c.total_value) AS signed_contract_value,
+  SUM(c.total_value) / 100.0 AS signed_contract_value,
   SUM(COUNT(*)) OVER() AS total_signed_contracts,
-  SUM(SUM(c.total_value)) OVER() AS total_signed_contract_value,
+  SUM(SUM(c.total_value)) OVER() / 100.0 AS total_signed_contract_value,
   ROUND(
     SUM(c.total_value) * 100.0
     / NULLIF(SUM(SUM(c.total_value)) OVER(), 0),
@@ -1579,7 +1610,7 @@ ORDER BY signed_contract_value DESC, first_source ASC;
 SELECT
   COALESCE(NULLIF(TRIM(c.closer_id), ''), 'No Closer') AS closer_id,
   COUNT(*) AS signed_contract_count,
-  SUM(c.total_value) AS signed_contract_value,
+  SUM(c.total_value) / 100.0 AS signed_contract_value,
   SUM(COUNT(*)) OVER() AS total_signed_contracts,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_signed_contracts
 FROM contracts c
@@ -1608,7 +1639,7 @@ WITH closer_values AS (
   SELECT
     NULLIF(TRIM(c.closer_id), '') AS closer_id,
     COUNT(*) AS signed_contract_count,
-    SUM(c.total_value) AS signed_contract_value
+    SUM(c.total_value) / 100.0 AS signed_contract_value
   FROM contracts c
   WHERE c.clerk_org_id = :org_id
     AND c.is_deleted = false
@@ -1648,7 +1679,7 @@ SELECT
   COALESCE(pr.name, 'Unknown Program') AS program_name,
   CAST(c.type AS text) AS contract_type,
   CAST(c.status AS text) AS contract_status,
-  c.total_value,
+  c.total_value / 100.0 AS total_value,
   c.currency,
   COALESCE(NULLIF(TRIM(c.closer_id), ''), 'No Closer') AS closer_id,
   COALESCE(NULLIF(TRIM(c.setter_id), ''), 'No Setter') AS setter_id,
@@ -1687,7 +1718,7 @@ SELECT
   COALESCE(pr.name, 'Unknown Program') AS program_name,
   CAST(c.type AS text) AS contract_type,
   CAST(c.status AS text) AS contract_status,
-  c.total_value,
+  c.total_value / 100.0 AS total_value,
   c.currency,
   COALESCE(NULLIF(TRIM(c.closer_id), ''), 'No Closer') AS closer_id,
   COALESCE(NULLIF(TRIM(c.setter_id), ''), 'No Setter') AS setter_id,
@@ -1717,7 +1748,7 @@ LIMIT 50;
 SELECT
   CAST(r.status AS text) AS refund_status,
   COUNT(*) AS refund_count,
-  SUM(r.amount) AS refund_amount,
+  SUM(r.amount) / 100.0 AS refund_amount,
   SUM(COUNT(*)) OVER() AS total_matching_refunds,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM refunds r
@@ -1731,7 +1762,7 @@ ORDER BY refund_count DESC, refund_status ASC;
 ```sql
 SELECT
   COUNT(*) AS succeeded_refund_count,
-  SUM(r.amount) AS succeeded_refund_amount
+  SUM(r.amount) / 100.0 AS succeeded_refund_amount
 FROM refunds r
 WHERE r.clerk_org_id = :org_id
   AND r.status = 'SUCCEEDED';
@@ -1744,14 +1775,14 @@ Refund rate compares succeeded refund amount against paid payment amount.
 ```sql
 WITH paid_payments AS (
   SELECT
-    SUM(p.amount) AS gross_paid_amount
+    SUM(p.amount) / 100.0 AS gross_paid_amount
   FROM payments p
   WHERE p.clerk_org_id = :org_id
     AND p.is_deleted = false
     AND p.status = 'PAID'
 ), succeeded_refunds AS (
   SELECT
-    SUM(r.amount) AS refunded_amount
+    SUM(r.amount) / 100.0 AS refunded_amount
   FROM refunds r
   JOIN payments p
     ON p.id = r.payment_id
@@ -1774,7 +1805,7 @@ CROSS JOIN succeeded_refunds sr;
 SELECT
   CAST(i.status AS text) AS invoice_status,
   COUNT(*) AS invoice_count,
-  SUM(i.amount) AS invoice_amount,
+  SUM(i.amount) / 100.0 AS invoice_amount,
   SUM(COUNT(*)) OVER() AS total_matching_invoices,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM invoices i
@@ -1846,7 +1877,7 @@ WHERE p.clerk_org_id = :org_id
 SELECT
   CAST(cs.status AS text) AS subscription_status,
   COUNT(*) AS subscription_count,
-  SUM(cs.amount_per_cycle) AS total_amount_per_cycle,
+  SUM(cs.amount_per_cycle) / 100.0 AS total_amount_per_cycle,
   SUM(COUNT(*)) OVER() AS total_matching_subscriptions,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM contract_subscriptions cs
@@ -1866,9 +1897,9 @@ SELECT
   COUNT(*) AS active_subscription_count,
   ROUND(SUM(
     CASE
-      WHEN cs.billing_interval = 'WEEKLY' THEN cs.amount_per_cycle * 52.0 / 12.0
-      WHEN cs.billing_interval = 'MONTHLY' THEN cs.amount_per_cycle
-      WHEN cs.billing_interval = 'YEARLY' THEN cs.amount_per_cycle / 12.0
+      WHEN cs.billing_interval = 'WEEKLY' THEN (cs.amount_per_cycle / 100.0) * 52.0 / 12.0
+      WHEN cs.billing_interval = 'MONTHLY' THEN cs.amount_per_cycle / 100.0
+      WHEN cs.billing_interval = 'YEARLY' THEN (cs.amount_per_cycle / 100.0) / 12.0
       ELSE NULL
     END), 2) AS mrr
 FROM contract_subscriptions cs
@@ -1885,7 +1916,7 @@ WHERE c.clerk_org_id = :org_id
 ```sql
 SELECT
   COUNT(*) AS past_due_subscription_count,
-  SUM(cs.amount_per_cycle) AS amount_per_cycle_past_due
+  SUM(cs.amount_per_cycle) / 100.0 AS amount_per_cycle_past_due
 FROM contract_subscriptions cs
 JOIN contracts c
   ON c.id = cs.contract_id
@@ -1911,7 +1942,7 @@ SELECT
   COALESCE(pr.name, 'Unknown Program') AS program_name,
   CAST(cs.status AS text) AS subscription_status,
   CAST(cs.payment_provider AS text) AS payment_provider,
-  cs.amount_per_cycle,
+  cs.amount_per_cycle / 100.0 AS amount_per_cycle,
   CAST(cs.billing_interval AS text) AS billing_interval,
   cs.currency,
   cs.next_billing_date,
@@ -1964,7 +1995,7 @@ SELECT
   CAST(up.status AS text) AS unmatched_payment_status,
   CAST(up.provider AS text) AS payment_provider,
   COUNT(*) AS unmatched_payment_count,
-  SUM(up.amount) AS unmatched_payment_amount,
+  SUM(up.amount) / 100.0 AS unmatched_payment_amount,
   SUM(COUNT(*)) OVER() AS total_matching_unmatched_payments,
   ROUND(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0), 2) AS percentage_of_total
 FROM unmatched_payments up
@@ -1978,7 +2009,7 @@ ORDER BY unmatched_payment_count DESC, unmatched_payment_status ASC, payment_pro
 ```sql
 SELECT
   COUNT(*) AS pending_unmatched_payment_count,
-  SUM(up.amount) AS pending_unmatched_payment_amount
+  SUM(up.amount) / 100.0 AS pending_unmatched_payment_amount
 FROM unmatched_payments up
 WHERE up.clerk_org_id = :org_id
   AND up.status = 'PENDING';
@@ -1993,7 +2024,7 @@ SELECT
   COUNT(*) OVER() AS total_matching_rows,
   up.id,
   CAST(up.provider AS text) AS payment_provider,
-  up.amount,
+  up.amount / 100.0 AS amount,
   up.currency,
   CAST(up.status AS text) AS unmatched_payment_status,
   up.customer_name,
@@ -2016,7 +2047,7 @@ Use this for daily collected revenue trend. This returns gross paid amount only.
 SELECT
   DATE_TRUNC('day', p.paid_at)::date AS payment_date,
   COUNT(*) AS paid_payment_count,
-  SUM(p.amount) AS gross_paid_amount
+  SUM(p.amount) / 100.0 AS gross_paid_amount
 FROM payments p
 WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
@@ -2032,7 +2063,7 @@ ORDER BY payment_date ASC;
 SELECT
   DATE_TRUNC('day', p.paid_at)::date AS payment_date,
   COUNT(*) AS paid_payment_count,
-  SUM(p.amount) AS gross_paid_amount
+  SUM(p.amount) / 100.0 AS gross_paid_amount
 FROM payments p
 WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
@@ -2064,7 +2095,7 @@ WITH months AS (
   SELECT
     DATE_TRUNC('month', p.paid_at)::date AS payment_month,
     COUNT(*) AS paid_payment_count,
-    SUM(p.amount) AS gross_paid_amount
+    SUM(p.amount) / 100.0 AS gross_paid_amount
   FROM payments p
   WHERE p.clerk_org_id = :org_id
     AND p.is_deleted = false
@@ -2126,7 +2157,7 @@ WITH months AS (
   SELECT
     DATE_TRUNC('month', c.signed_at)::date AS signed_month,
     COUNT(*) AS signed_contract_count,
-    SUM(c.total_value) AS signed_contract_value
+    SUM(c.total_value) / 100.0 AS signed_contract_value
   FROM contracts c
   WHERE c.clerk_org_id = :org_id
     AND c.is_deleted = false
