@@ -28,6 +28,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.config import get_sql_agent_settings, load_app_config  # noqa: E402
 from app.orchestrator import (  # noqa: E402
     answer_user_question,
+    create_default_diagnostic_agent,
     create_default_lead_360_agent,
     create_default_router,
     create_default_sql_agent,
@@ -47,6 +48,7 @@ CONFIG_PATH = PROJECT_ROOT / "app" / "config" / "config.yaml"
 SQL_AGENT_PROMPT_PATH = PROJECT_ROOT / "app" / "prompts" / "sql_agent" / "1_0_0.yaml"
 ROUTER_PROMPT_PATH = PROJECT_ROOT / "app" / "prompts" / "router.md"
 LEAD_360_PROMPT_PATH = PROJECT_ROOT / "app" / "skills" / "modules" / "lead_360.md"
+DIAGNOSTIC_PROMPT_PATH = PROJECT_ROOT / "app" / "skills" / "modules" / "diagnostic_analytics.md"
 TESTING_INPUT_DIR = TESTING_DIR / "input"
 ACQUISITION_INPUT_QUESTIONS_PATH = (
     TESTING_INPUT_DIR / "acquisition_analytics_clean_test_questions.csv"
@@ -471,17 +473,20 @@ def get_flow_components(
     prompt_mtime_ns: int = 0,
     router_prompt_mtime_ns: int = 0,
     lead_360_prompt_mtime_ns: int = 0,
+    diagnostic_prompt_mtime_ns: int = 0,
 ):
     _ = cache_version
     _ = config_mtime_ns
     _ = prompt_mtime_ns
     _ = router_prompt_mtime_ns
     _ = lead_360_prompt_mtime_ns
+    _ = diagnostic_prompt_mtime_ns
     load_app_config.cache_clear()
     return {
         "router": create_default_router(),
         "sql_agent": create_default_sql_agent(),
         "lead_360_agent": create_default_lead_360_agent(),
+        "diagnostic_agent": create_default_diagnostic_agent(),
     }
 
 
@@ -1215,6 +1220,7 @@ def run_question(question: str) -> dict[str, Any]:
         prompt_mtime_ns=SQL_AGENT_PROMPT_PATH.stat().st_mtime_ns,
         router_prompt_mtime_ns=ROUTER_PROMPT_PATH.stat().st_mtime_ns,
         lead_360_prompt_mtime_ns=LEAD_360_PROMPT_PATH.stat().st_mtime_ns,
+        diagnostic_prompt_mtime_ns=DIAGNOSTIC_PROMPT_PATH.stat().st_mtime_ns,
     )
     timing_callback = AgentTimingCallback()
     started_at = time.perf_counter()
@@ -1224,6 +1230,7 @@ def run_question(question: str) -> dict[str, Any]:
         router=components["router"],
         sql_agent=components["sql_agent"],
         lead_360_agent=components["lead_360_agent"],
+        diagnostic_agent=components["diagnostic_agent"],
         config={"callbacks": [timing_callback]},
     )
     elapsed_seconds = time.perf_counter() - started_at

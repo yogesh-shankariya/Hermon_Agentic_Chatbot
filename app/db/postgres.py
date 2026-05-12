@@ -65,6 +65,7 @@ BUSINESS_TABLES = {
     "calendar_availability_snapshots",
     "contract_subscriptions",
     "contracts",
+    "diagnostic_lead_snapshot",
     "fathom_call_records",
     "fathom_org_settings",
     "invoices",

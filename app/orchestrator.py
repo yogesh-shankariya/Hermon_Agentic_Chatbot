@@ -14,10 +14,6 @@ from app.schema.router import RouterResponse, RouterRoute
 MAX_ROUTER_HISTORY = 5
 APP_DIR = Path(__file__).resolve().parent
 ROUTER_PROMPT_PATH = APP_DIR / "prompts" / "router.md"
-DIAGNOSTIC_UNSUPPORTED_MESSAGE = (
-    "Diagnostic analytics is not supported yet. I can help with read-only aggregate "
-    "analytics or a single-lead Lead 360 question."
-)
 UNSUPPORTED_MESSAGE = (
     "That request is not supported. I can help with read-only analytics or a safe "
     "single-lead Lead 360 view."
@@ -183,6 +179,14 @@ def create_default_lead_360_agent():
     return create_lead_360_agent()
 
 
+def create_default_diagnostic_agent():
+    """Create the Diagnostic Analytics flow without exposing it to callers directly."""
+
+    from app.agents.diagnostic_agent import create_diagnostic_agent
+
+    return create_diagnostic_agent()
+
+
 def route_question(
     current_question: str,
     chat_history: Sequence[Any],
@@ -318,9 +322,11 @@ def answer_user_question(
     router: Any | None = None,
     sql_agent: Any | None = None,
     lead_360_agent: Any | None = None,
+    diagnostic_agent: Any | None = None,
     config: dict[str, Any] | None = None,
     sql_agent_factory: Callable[[], Any] = create_default_sql_agent,
     lead_360_agent_factory: Callable[[], Any] = create_default_lead_360_agent,
+    diagnostic_agent_factory: Callable[[], Any] = create_default_diagnostic_agent,
 ) -> dict[str, Any]:
     """Route first, then dispatch to exactly one allowed downstream flow."""
 
@@ -331,15 +337,6 @@ def answer_user_question(
         config=config,
     )
     selected_history = selected_history_for_route(router_response, latest_history)
-
-    if router_response.route == RouterRoute.DIAGNOSTIC_ANALYTICS:
-        return _static_turn(
-            current_question=current_question,
-            router_response=router_response,
-            latest_history=latest_history,
-            selected_history=selected_history,
-            answer=DIAGNOSTIC_UNSUPPORTED_MESSAGE,
-        )
 
     if router_response.route == RouterRoute.UNSUPPORTED:
         return _static_turn(
@@ -359,6 +356,8 @@ def answer_user_question(
         effective_agent = sql_agent or sql_agent_factory()
     elif router_response.route == RouterRoute.LEAD_360:
         effective_agent = lead_360_agent or lead_360_agent_factory()
+    elif router_response.route == RouterRoute.DIAGNOSTIC_ANALYTICS:
+        effective_agent = diagnostic_agent or diagnostic_agent_factory()
     else:
         return _static_turn(
             current_question=current_question,

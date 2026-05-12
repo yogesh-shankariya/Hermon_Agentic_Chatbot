@@ -181,6 +181,10 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         tool_names = [tool.name for tool in module.SQL_AGENT_TOOLS]
         self.assertEqual(tool_names, ["load_skill", "run_readonly_sql"])
         self.assertNotIn("get_lead_360", tool_names)
+        self.assertNotIn("get_diagnostic_funnel_snapshot", tool_names)
+        self.assertNotIn("get_diagnostic_source_snapshot", tool_names)
+        self.assertNotIn("get_diagnostic_source_quality_snapshot", tool_names)
+        self.assertNotIn("get_diagnostic_business_change_snapshot", tool_names)
 
     def test_lead_360_agent_has_only_lead_360_tool_and_safe_prompt_rules(self):
         module = self._load_lead_360_builder_with_fakes()
@@ -197,10 +201,33 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         self.assertIn("If status is `error`", prompt)
         self.assertIn("If status is `success`", prompt)
 
+    def test_diagnostic_agent_has_only_diagnostic_tools_and_safe_prompt_rules(self):
+        module = self._load_diagnostic_builder_with_fakes()
+        agent = module.create_diagnostic_agent()
+
+        expected_tool_names = [
+            "get_diagnostic_funnel_snapshot",
+            "get_diagnostic_source_snapshot",
+            "get_diagnostic_source_quality_snapshot",
+            "get_diagnostic_business_change_snapshot",
+        ]
+        self.assertEqual([tool.name for tool in module.DIAGNOSTIC_TOOLS], expected_tool_names)
+        self.assertEqual([tool.name for tool in agent.tools], expected_tool_names)
+        self.assertNotIn("load_skill", expected_tool_names)
+        self.assertNotIn("run_readonly_sql", expected_tool_names)
+        self.assertNotIn("get_lead_360", expected_tool_names)
+
+        prompt = module.load_diagnostic_prompt()
+        self.assertIn("Do not generate SQL.", prompt)
+        self.assertIn("Do not call `run_readonly_sql`.", prompt)
+        self.assertIn("Do not call `load_skill`.", prompt)
+        self.assertIn("Use only the evidence returned by the diagnostic tools.", prompt)
+
     def test_orchestrator_routes_sql_examples_to_sql_flow(self):
         orchestrator = self._import_orchestrator()
         sql_agent = FakeAgent("sql answer")
         lead_agent = FailingAgent()
+        diagnostic_agent = FailingAgent()
 
         for question in ["How many leads came last month?", "Show revenue by program."]:
             with self.subTest(question=question):
@@ -218,6 +245,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
                     router=router,
                     sql_agent=sql_agent,
                     lead_360_agent=lead_agent,
+                    diagnostic_agent=diagnostic_agent,
                 )
                 self.assertEqual(turn["route"], "sql_analytics")
                 self.assertEqual(turn["answer"], "sql answer")
@@ -243,6 +271,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         orchestrator = self._import_orchestrator()
         sql_agent = FailingAgent()
         lead_agent = FakeAgent("lead answer")
+        diagnostic_agent = FailingAgent()
 
         for question in ["What happened with Vedran?", "Give me the 360 view of john@example.com."]:
             with self.subTest(question=question):
@@ -260,10 +289,48 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
                     router=router,
                     sql_agent=sql_agent,
                     lead_360_agent=lead_agent,
+                    diagnostic_agent=diagnostic_agent,
                 )
                 self.assertEqual(turn["route"], "lead_360")
                 self.assertEqual(turn["answer"], "lead answer")
                 self.assertEqual(len(lead_agent.payloads), 1)
+
+    def test_orchestrator_routes_diagnostic_examples_to_diagnostic_flow(self):
+        orchestrator = self._import_orchestrator()
+        diagnostic_agent = FakeAgent("diagnostic answer")
+
+        questions = [
+            "Why are leads increasing but revenue is not?",
+            "Where are we losing people in the funnel?",
+            "Which source looks good but may be misleading?",
+            "Can we trust source performance?",
+            "What changed this month?",
+            "What should sales focus on this week?",
+            "What should marketing investigate this week?",
+            "Which source has signed contracts but low collected cash?",
+        ]
+
+        for question in questions:
+            with self.subTest(question=question):
+                diagnostic_agent.payloads.clear()
+                router = FakeRouter(
+                    {
+                        "route": "diagnostic_analytics",
+                        "history_count": 0,
+                        "standalone_question": question,
+                    }
+                )
+                turn = orchestrator.answer_user_question(
+                    question,
+                    [],
+                    router=router,
+                    sql_agent=FailingAgent(),
+                    lead_360_agent=FailingAgent(),
+                    diagnostic_agent=diagnostic_agent,
+                )
+                self.assertEqual(turn["route"], "diagnostic_analytics")
+                self.assertEqual(turn["answer"], "diagnostic answer")
+                self.assertEqual(len(diagnostic_agent.payloads), 1)
 
     def test_orchestrator_uses_router_history_count_for_single_lead_follow_up(self):
         orchestrator = self._import_orchestrator()
@@ -285,6 +352,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             router=router,
             sql_agent=FailingAgent(),
             lead_360_agent=lead_agent,
+            diagnostic_agent=FailingAgent(),
         )
 
         messages = lead_agent.payloads[0]["messages"]
@@ -296,30 +364,60 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             {"role": "assistant", "content": "Vedran is in follow-up."},
         ])
 
-    def test_orchestrator_does_not_call_downstream_for_diagnostic_or_unsupported(self):
+    def test_orchestrator_uses_router_history_count_for_diagnostic_follow_up(self):
         orchestrator = self._import_orchestrator()
-        cases = [
-            ("Which source should we scale?", "diagnostic_analytics"),
-            ("Delete these leads.", "unsupported"),
+        diagnostic_agent = FakeAgent("diagnostic follow-up answer")
+        history = [
+            {
+                "question": "Why are leads increasing but revenue is not?",
+                "answer": "Revenue per lead dropped.",
+            }
         ]
+        router = FakeRouter(
+            {
+                "route": "diagnostic_analytics",
+                "history_count": 1,
+                "standalone_question": "Which funnel stage changed most?",
+            }
+        )
 
-        for question, route in cases:
-            with self.subTest(route=route):
-                turn = orchestrator.answer_user_question(
-                    question,
-                    [],
-                    router=FakeRouter(
-                        {
-                            "route": route,
-                            "history_count": 0,
-                            "standalone_question": question,
-                        }
-                    ),
-                    sql_agent=FailingAgent(),
-                    lead_360_agent=FailingAgent(),
-                )
-                self.assertEqual(turn["route"], route)
-                self.assertEqual(turn["trace_messages"], [])
+        turn = orchestrator.answer_user_question(
+            "Which stage changed most?",
+            history,
+            router=router,
+            sql_agent=FailingAgent(),
+            lead_360_agent=FailingAgent(),
+            diagnostic_agent=diagnostic_agent,
+        )
+
+        messages = diagnostic_agent.payloads[0]["messages"]
+        self.assertEqual(turn["route"], "diagnostic_analytics")
+        self.assertEqual(turn["context_turn_count"], 1)
+        self.assertEqual(messages[-1]["content"], "Which funnel stage changed most?")
+        self.assertEqual(messages[:-1], [
+            {"role": "user", "content": "Why are leads increasing but revenue is not?"},
+            {"role": "assistant", "content": "Revenue per lead dropped."},
+        ])
+
+    def test_orchestrator_does_not_call_downstream_for_unsupported(self):
+        orchestrator = self._import_orchestrator()
+
+        turn = orchestrator.answer_user_question(
+            "Delete these leads.",
+            [],
+            router=FakeRouter(
+                {
+                    "route": "unsupported",
+                    "history_count": 0,
+                    "standalone_question": "Delete these leads.",
+                }
+            ),
+            sql_agent=FailingAgent(),
+            lead_360_agent=FailingAgent(),
+            diagnostic_agent=FailingAgent(),
+        )
+        self.assertEqual(turn["route"], "unsupported")
+        self.assertEqual(turn["trace_messages"], [])
 
     def test_router_receives_only_latest_five_history_turns(self):
         orchestrator = self._import_orchestrator()
@@ -341,6 +439,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             router=router,
             sql_agent=FakeAgent("sql answer"),
             lead_360_agent=FailingAgent(),
+            diagnostic_agent=FailingAgent(),
         )
 
         router_user_content = _message_content(router.payloads[0][-1])
@@ -421,6 +520,59 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             for name in ("app.tools", "app.config", "app.config.settings")
         }
         sys.modules["app.tools"] = fake_tools
+        sys.modules["app.config"] = fake_config
+        sys.modules["app.config.settings"] = fake_settings
+
+        try:
+            spec = importlib.util.spec_from_file_location(module_name, module_path)
+            module = importlib.util.module_from_spec(spec)
+            assert spec and spec.loader
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+            return module
+        finally:
+            sys.modules.pop(module_name, None)
+            for name, original in originals.items():
+                if original is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = original
+
+    def _load_diagnostic_builder_with_fakes(self):
+        _install_fake_langchain_if_needed()
+        module_name = "diagnostic_builder_under_test"
+        module_path = APP_DIR / "agents" / "diagnostic_agent" / "builder.py"
+
+        fake_diagnostic_tools = types.ModuleType("app.tools.diagnostic_tools")
+        fake_diagnostic_tools.DIAGNOSTIC_TOOLS = [
+            SimpleNamespace(name="get_diagnostic_funnel_snapshot"),
+            SimpleNamespace(name="get_diagnostic_source_snapshot"),
+            SimpleNamespace(name="get_diagnostic_source_quality_snapshot"),
+            SimpleNamespace(name="get_diagnostic_business_change_snapshot"),
+        ]
+        fake_tools = types.ModuleType("app.tools")
+        fake_tools.__path__ = []
+        fake_config = types.ModuleType("app.config")
+        fake_config.ensure_openai_key = lambda: None
+        fake_config.get_sql_agent_settings = lambda: SimpleNamespace(
+            model="test-model",
+            reasoning=None,
+            service_tier=None,
+        )
+        fake_settings = types.ModuleType("app.config.settings")
+        fake_settings.APP_DIR = APP_DIR
+
+        originals = {
+            name: sys.modules.get(name)
+            for name in (
+                "app.tools",
+                "app.tools.diagnostic_tools",
+                "app.config",
+                "app.config.settings",
+            )
+        }
+        sys.modules["app.tools"] = fake_tools
+        sys.modules["app.tools.diagnostic_tools"] = fake_diagnostic_tools
         sys.modules["app.config"] = fake_config
         sys.modules["app.config.settings"] = fake_settings
 
