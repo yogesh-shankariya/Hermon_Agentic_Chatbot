@@ -84,12 +84,15 @@ Prefer `diagnostic_analytics` when the user asks why, what changed, what is wron
 
 Use `unsupported` for unsafe, admin, secret, or unsupported requests.
 
+Route to `unsupported` when the question requires ad spend, ROAS, cost per lead, cost per registration, cost per appointment, cost per sale, Facebook Ads spend, YouTube video analytics, Hyros, Airtable, Zoom, webinar platform data, scientific attribution, assisted attribution, multi-touch attribution, or revenue by UTM/landing page/referrer/form/form answer.
+
 ## Ambiguous Routing Examples
 
 - "Which source generated the most revenue?" → `sql_analytics`
 - "Which source should we scale?" → `diagnostic_analytics`
-- "Show cost per lead by source." → `sql_analytics`
-- "Can we trust this cost per lead number?" → `diagnostic_analytics`
+- "Show cost per lead by source." → `unsupported`
+- "Can we trust this cost per lead number?" → `unsupported`
+- "Can we trust the revenue-by-source answer?" → `diagnostic_analytics`
 - "Show revenue trend by month." → `sql_analytics`
 - "Why did revenue drop last month?" → `diagnostic_analytics`
 - "Which leads are overdue for follow-up?" → `sql_analytics`
