@@ -2,11 +2,16 @@
 
 These tools provide controlled evidence for the future diagnostic analytics
 agent. They intentionally use fixed SQL templates instead of LLM-generated SQL.
+
+Money fields in diagnostic_lead_snapshot are already major-unit EUR values.
+Do not divide diagnostic money fields by 100 in these tools or in the
+diagnostic agent prompt.
 """
 
 from __future__ import annotations
 
 import json
+from calendar import monthrange
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -20,13 +25,16 @@ from app.db import get_db
 SCOPE_NOTE = (
     "This diagnostic snapshot uses lead_created_at cohort logic. "
     "Revenue and payment fields are lifetime outcomes for leads created in the selected period, "
-    "not true payment-period revenue."
+    "not true payment-period revenue. "
+    "Monetary fields returned by this tool are already major-unit EUR values, "
+    "not raw minor-unit source values."
 )
 
 SUPPORTED_SOURCE_BASIS = {
     "first": "first_source",
     "last": "last_source",
 }
+DEFAULT_LOOKBACK_MONTHS = 6
 
 SNAPSHOT_DATE_BOUNDS_SQL = """
 SELECT
@@ -60,6 +68,14 @@ def _parse_date(value: str | date | None) -> date | None:
     if not clean_value:
         return None
     return datetime.strptime(clean_value, "%Y-%m-%d").date()
+
+
+def _add_months(value: date, months: int) -> date:
+    month_index = value.year * 12 + value.month - 1 + months
+    target_year = month_index // 12
+    target_month = month_index % 12 + 1
+    target_day = min(value.day, monthrange(target_year, target_month)[1])
+    return date(target_year, target_month, target_day)
 
 
 def _query_records(
@@ -98,21 +114,29 @@ def _default_periods(
 ) -> dict[str, str]:
     bounds = _snapshot_date_bounds(org_id)
     anchor_date = bounds["max_lead_created_date"]
-    anchor_month_start = anchor_date.replace(day=1)
 
     current_start = _parse_date(current_start_date)
     current_end = _parse_date(current_end_date)
     previous_start = _parse_date(previous_start_date)
     previous_end = _parse_date(previous_end_date)
 
-    if current_start is None:
-        current_start = anchor_month_start
+    current_start_was_defaulted = current_start is None
+    current_end_was_defaulted = current_end is None
+
     if current_end is None:
         current_end = anchor_date + timedelta(days=1)
+    if current_start is None:
+        current_start = _add_months(current_end, -DEFAULT_LOOKBACK_MONTHS)
 
     if previous_start is None or previous_end is None:
-        previous_end_default = anchor_month_start
-        previous_start_default = (anchor_month_start - timedelta(days=1)).replace(day=1)
+        previous_end_default = current_start
+        if current_start_was_defaulted and current_end_was_defaulted:
+            previous_start_default = _add_months(
+                previous_end_default,
+                -DEFAULT_LOOKBACK_MONTHS,
+            )
+        else:
+            previous_start_default = previous_end_default - (current_end - current_start)
         previous_start = previous_start or previous_start_default
         previous_end = previous_end or previous_end_default
 

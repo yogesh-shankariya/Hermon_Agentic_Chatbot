@@ -170,6 +170,37 @@ Do not use CRM-side source confidence as a replacement for ad attribution or ROA
 
 ---
 
+## Monetary Unit Rules
+
+All money fields exposed by the diagnostic tools come from `diagnostic_lead_snapshot` and are already business-facing major-unit EUR values.
+
+Do not divide these diagnostic fields by `100`, `100.0`, or any other minor-unit conversion:
+
+```text
+signed_contract_value
+gross_paid_amount
+refund_amount
+net_collected_amount
+outstanding_amount
+overdue_amount
+net_collected_per_lead
+net_collected_per_completed_call
+current_gross_paid_amount
+previous_gross_paid_amount
+current_refund_amount
+previous_refund_amount
+current_net_collected_amount
+previous_net_collected_amount
+current_outstanding_amount
+previous_outstanding_amount
+```
+
+The source tables used by normal revenue analytics store money in minor units, but that conversion is completed before values are written into `diagnostic_lead_snapshot`.
+
+Diagnostic answers must use diagnostic tool money values exactly as returned and format them as EUR. Applying `/ 100` again would understate the money by 100x.
+
+---
+
 ## Snapshot Limitation
 
 Every diagnostic answer that mentions revenue, payment, refund, outstanding amount, or period comparison must respect this limitation:
@@ -223,6 +254,8 @@ May 2026 = 2026-05-01 to 2026-06-01
 Do not pass the last calendar day as `end_date` for full-month requests.
 
 If the user does not give dates, rely on the tool defaults and state the returned period exactly.
+The diagnostic tool default is a rolling 6-month `lead_created_at` window ending at the latest available snapshot lead date plus one exclusive day.
+Do not narrow an undated diagnostic question to month-to-date unless the user explicitly asks for the current month.
 
 For relative wording like "this week", "this month", or "last month", do not assume calendar dates in the answer. Use the period metadata returned by the tool and say the exact returned start and end dates.
 

@@ -128,6 +128,33 @@ This diagnostic snapshot uses lead_created_at cohort logic. Revenue and payment 
 
 Do not claim exact payment-period revenue trends from this snapshot.
 
+## Money Unit Rules
+
+All money fields read from `diagnostic_lead_snapshot` are already business-facing major-unit EUR values.
+
+Do not divide these fields by `100` in diagnostic tool SQL, diagnostic tool responses, or future diagnostic agent prompts:
+
+```text
+signed_contract_value
+gross_paid_amount
+refund_amount
+net_collected_amount
+outstanding_amount
+overdue_amount
+net_collected_per_lead
+net_collected_per_completed_call
+current_gross_paid_amount
+previous_gross_paid_amount
+current_refund_amount
+previous_refund_amount
+current_net_collected_amount
+previous_net_collected_amount
+current_outstanding_amount
+previous_outstanding_amount
+```
+
+The source revenue tables use minor units, but `diagnostic_lead_snapshot` receives the already-converted major-unit values during the snapshot build. Dividing snapshot values again would understate money by 100x.
+
 ---
 
 ## Date Inputs
@@ -164,8 +191,8 @@ If dates are omitted, use this default:
 
 ```text
 anchor date = max(diagnostic_lead_snapshot.lead_created_at)::date for the selected org
-current period = anchor month-to-date, ending at anchor date + 1 day
-previous period = previous completed calendar month before the anchor month
+current period = rolling 6-month window ending at anchor date + 1 day
+previous period = rolling 6-month window immediately before the current period
 ```
 
 Implementation must use a fixed read-only SQL query to find the snapshot anchor date. Do not use `date.today()` for MVP defaults because the static demo snapshot can lag behind the real calendar.
@@ -236,6 +263,7 @@ They intentionally use fixed SQL templates instead of LLM-generated SQL.
 from __future__ import annotations
 
 import json
+from calendar import monthrange
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -284,6 +312,17 @@ def _parse_date(value: str | None) -> date | None:
     return datetime.strptime(str(value).strip(), "%Y-%m-%d").date()
 
 
+DEFAULT_LOOKBACK_MONTHS = 6
+
+
+def _add_months(value: date, months: int) -> date:
+    month_index = value.year * 12 + value.month - 1 + months
+    target_year = month_index // 12
+    target_month = month_index % 12 + 1
+    target_day = min(value.day, monthrange(target_year, target_month)[1])
+    return date(target_year, target_month, target_day)
+
+
 def _snapshot_date_bounds(org_id: str) -> dict[str, date]:
     rows = _query_records(SNAPSHOT_DATE_BOUNDS_SQL, {"org_id": org_id}, max_rows=1)
     if not rows or rows[0].get("max_lead_created_date") is None:
@@ -311,21 +350,29 @@ def _default_periods(
 ) -> dict[str, str]:
     bounds = _snapshot_date_bounds(org_id)
     anchor_date = bounds["max_lead_created_date"]
-    anchor_month_start = anchor_date.replace(day=1)
     current_start = _parse_date(current_start_date)
     current_end = _parse_date(current_end_date)
     previous_start = _parse_date(previous_start_date)
     previous_end = _parse_date(previous_end_date)
 
-    if current_start is None:
-        current_start = anchor_month_start
+    current_start_was_defaulted = current_start is None
+    current_end_was_defaulted = current_end is None
 
     if current_end is None:
         current_end = anchor_date + timedelta(days=1)
 
+    if current_start is None:
+        current_start = _add_months(current_end, -DEFAULT_LOOKBACK_MONTHS)
+
     if previous_start is None or previous_end is None:
-        previous_end_default = anchor_month_start
-        previous_start_default = (anchor_month_start - timedelta(days=1)).replace(day=1)
+        previous_end_default = current_start
+        if current_start_was_defaulted and current_end_was_defaulted:
+            previous_start_default = _add_months(
+                previous_end_default,
+                -DEFAULT_LOOKBACK_MONTHS,
+            )
+        else:
+            previous_start_default = previous_end_default - (current_end - current_start)
 
         previous_start = previous_start or previous_start_default
         previous_end = previous_end or previous_end_default
@@ -1304,7 +1351,7 @@ Task is complete only when:
 8. No tool reads raw text or sensitive fields.
 9. Tool responses include scope_note.
 10. No diagnostic tool SQL uses `SELECT *`, `dls.*`, or alias wildcards.
-11. Default date windows are anchored to max snapshot lead_created_at.
+11. Default date windows cover the last 6 months anchored to max snapshot lead_created_at.
 12. Source-quality output returns the overall row without consuming the source limit.
 13. Basic function-level tests/manual calls pass.
 ```

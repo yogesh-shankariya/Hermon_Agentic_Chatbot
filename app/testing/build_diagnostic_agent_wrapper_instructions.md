@@ -514,4 +514,6 @@ Diagnostic analytics is a separate agent flow, not a SQL analytics flow.
 
 The diagnostic agent should explain using evidence from controlled diagnostic tools over `diagnostic_lead_snapshot`.
 
+All monetary fields returned by those diagnostic tools are already major-unit EUR values from `diagnostic_lead_snapshot`. The diagnostic agent must not divide `gross_paid_amount`, `refund_amount`, `net_collected_amount`, `outstanding_amount`, `signed_contract_value`, or related current/previous money fields by `100` again.
+
 It must not generate SQL or call the SQL agent.

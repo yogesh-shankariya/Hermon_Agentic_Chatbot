@@ -123,7 +123,7 @@ class DiagnosticToolLayerTests(unittest.TestCase):
         postgres_text = (APP_DIR / "db" / "postgres.py").read_text(encoding="utf-8")
         self.assertIn('"diagnostic_lead_snapshot"', postgres_text)
 
-    def test_funnel_snapshot_uses_default_period_from_snapshot_anchor(self):
+    def test_funnel_snapshot_uses_default_six_month_period_from_snapshot_anchor(self):
         fake_db = FakeDb()
 
         with patch.object(diagnostic_tools, "get_db", return_value=fake_db):
@@ -132,10 +132,11 @@ class DiagnosticToolLayerTests(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["row_count"], 1)
         self.assertIn("lead_created_at cohort logic", result["scope_note"])
+        self.assertIn("already major-unit EUR values", result["scope_note"])
         self.assertEqual(
             result["period"],
             {
-                "start_date": "2026-05-01",
+                "start_date": "2025-11-10",
                 "end_date": "2026-05-10",
                 "anchor_date": "2026-05-09",
                 "date_field": "lead_created_at",
@@ -143,10 +144,33 @@ class DiagnosticToolLayerTests(unittest.TestCase):
         )
         self.assertIsInstance(result["rows"], list)
         self.assertEqual(fake_db.calls[1]["params"]["org_id"], "org_1")
-        self.assertEqual(fake_db.calls[1]["params"]["start_date"], "2026-05-01")
+        self.assertEqual(fake_db.calls[1]["params"]["start_date"], "2025-11-10")
         self.assertEqual(fake_db.calls[1]["params"]["end_date"], "2026-05-10")
 
-    def test_business_change_uses_default_org_and_previous_month(self):
+    def test_funnel_snapshot_preserves_explicit_period(self):
+        fake_db = FakeDb()
+
+        with patch.object(diagnostic_tools, "get_db", return_value=fake_db):
+            result = diagnostic_tools.get_diagnostic_funnel_snapshot(
+                org_id="org_1",
+                current_start_date="2026-03-01",
+                current_end_date="2026-04-01",
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(
+            result["period"],
+            {
+                "start_date": "2026-03-01",
+                "end_date": "2026-04-01",
+                "anchor_date": "2026-05-09",
+                "date_field": "lead_created_at",
+            },
+        )
+        self.assertEqual(fake_db.calls[1]["params"]["start_date"], "2026-03-01")
+        self.assertEqual(fake_db.calls[1]["params"]["end_date"], "2026-04-01")
+
+    def test_business_change_uses_default_org_and_previous_six_month_period(self):
         fake_db = FakeDb()
 
         with patch.object(diagnostic_tools, "get_db", return_value=fake_db):
@@ -154,10 +178,10 @@ class DiagnosticToolLayerTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["row_count"], 1)
-        self.assertEqual(result["periods"]["current"]["start_date"], "2026-05-01")
+        self.assertEqual(result["periods"]["current"]["start_date"], "2025-11-10")
         self.assertEqual(result["periods"]["current"]["end_date"], "2026-05-10")
-        self.assertEqual(result["periods"]["previous"]["start_date"], "2026-04-01")
-        self.assertEqual(result["periods"]["previous"]["end_date"], "2026-05-01")
+        self.assertEqual(result["periods"]["previous"]["start_date"], "2025-05-10")
+        self.assertEqual(result["periods"]["previous"]["end_date"], "2025-11-10")
         self.assertEqual(fake_db.calls[1]["params"]["org_id"], "org_default")
 
     def test_invalid_source_basis_wrapper_returns_error_json(self):

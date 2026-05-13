@@ -740,6 +740,8 @@ IGNORED
 
 Money-like database columns are stored in minor units even when the database type is decimal.
 
+These minor-unit rules apply to the revenue source tables below. They do not apply to `diagnostic_lead_snapshot`; that diagnostic table stores its money fields as already-converted major-unit EUR values. If you are debugging or comparing against `diagnostic_lead_snapshot`, never divide snapshot money fields by `100` again.
+
 Always divide these fields by `100.0` when returning business-facing money values:
 
 - `payments.amount`

@@ -1,5 +1,7 @@
 # Revenue Analytics Silver Truth
 
+Warning: this generated artifact contains stale monetary SQL/results from an older run that did not consistently convert minor-unit source values into major-unit business values. Do not use this file as monetary ground truth until regenerated with the current `revenue_analytics` skill. Source fields such as `payments.amount`, `refunds.amount`, and `contracts.total_value` must be divided by `100.0` for business-facing answers.
+
 ## 1. RAQ-004
 
 **Question**

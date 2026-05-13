@@ -39,6 +39,22 @@ Use existing project style and database patterns.
 
 ---
 
+## Monetary Unit Rule
+
+The revenue source tables store money in minor units:
+
+```text
+contracts.total_value
+payments.amount
+refunds.amount
+```
+
+All money columns stored in `diagnostic_lead_snapshot` must be business-facing major-unit EUR values.
+
+Divide source monetary sums by `100.0` before writing them into the snapshot. After the values are in `diagnostic_lead_snapshot`, do not divide them by `100` again.
+
+---
+
 ## Table Grain
 
 One row per:
@@ -727,7 +743,7 @@ signed_contract_count = count where c.status = 'SIGNED'
 sent_contract_count = count where c.status = 'SENT'
 viewed_contract_count = count where c.status = 'VIEWED'
 voided_contract_count = count where c.status = 'VOIDED'
-signed_contract_value = sum(c.total_value) where c.status = 'SIGNED'
+signed_contract_value = sum(c.total_value) / 100.0 where c.status = 'SIGNED'
 ```
 
 Latest contract fields should come from the latest contract by:
@@ -810,14 +826,16 @@ pending_payment_count = count where p.status = 'PENDING'
 failed_payment_count = count where p.status = 'FAILED'
 lost_payment_count = count where p.status = 'LOST'
 refunded_payment_count = count where p.status = 'REFUNDED'
-gross_paid_amount = sum(p.amount) where p.status = 'PAID'
-outstanding_amount = sum(p.amount) where p.status in ('PENDING', 'FAILED', 'LOST')
-overdue_amount = sum(p.amount) where p.status = 'PENDING' and p.due_date < now()
+gross_paid_amount = sum(p.amount) / 100.0 where p.status = 'PAID'
+outstanding_amount = sum(p.amount) / 100.0 where p.status in ('PENDING', 'FAILED')
+overdue_amount = sum(p.amount) / 100.0 where p.status in ('PENDING', 'FAILED') and p.due_date < now()
 latest_payment_status = status from latest payment
 latest_paid_at = max(p.paid_at)
 latest_payment_due_date = due_date from latest payment
 payment_currency = currency from latest payment
 ```
+
+Do not include LOST payment amount in `outstanding_amount` or `overdue_amount`.
 
 Latest payment should be selected by:
 
@@ -841,7 +859,7 @@ Aggregate `refunds` by payment/lead.
 Use only succeeded refunds for refund amount:
 
 ```text
-refund_amount = sum(refund amount) where refund.status = 'SUCCEEDED'
+refund_amount = sum(refund amount) / 100.0 where refund.status = 'SUCCEEDED'
 ```
 
 Join refunds to payments, then to resolved lead.
@@ -853,6 +871,8 @@ Calculate:
 ```text
 net_collected_amount = gross_paid_amount - refund_amount
 ```
+
+Both `gross_paid_amount` and `refund_amount` must already be major-unit EUR values before this subtraction.
 
 Revenue/source quality flag:
 
@@ -1072,6 +1092,7 @@ After refresh, run basic checks:
 6. Amounts should not be negative except net_collected_amount may be zero but should not be negative unless refunds exceed paid amount.
 7. funnel_stage should only contain allowed values.
 8. conversion_outcome should only contain allowed values.
+9. Money columns should be major-unit EUR values and not raw minor-unit source values.
 ```
 
 If validation fails, raise a clear error.
