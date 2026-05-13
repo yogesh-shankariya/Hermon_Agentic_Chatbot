@@ -16,7 +16,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 import streamlit as st
 
@@ -58,6 +58,9 @@ APPOINTMENT_INPUT_QUESTIONS_PATH = (
 )
 LEAD_INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "lead_analytics_clean_test_questions.csv"
 LEAD_360_INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "lead_360_clean_test_questions.csv"
+DIAGNOSTIC_INPUT_QUESTIONS_PATH = (
+    TESTING_INPUT_DIR / "diagnostic_analytics_clean_test_questions.csv"
+)
 REVENUE_INPUT_QUESTIONS_PATH = TESTING_INPUT_DIR / "revenue_analytics_clean_test_questions.csv"
 MULTI_SKILLS_INPUT_QUESTIONS_PATH = (
     TESTING_INPUT_DIR / "multi_skills_analytics_clean_test_questions.csv"
@@ -71,6 +74,21 @@ COMPACT_TABLE_MAX_COLUMNS = 8
 COMPACT_TABLE_MAX_ROWS = 30
 MAX_CONTEXT_TURNS = 5
 POC_FALLBACK_ORG_ID = "local_demo"
+SUPPLEMENTAL_FLOW_NAMES = (
+    "Multi Skills Analytics",
+    "Lead 360",
+    "Diagnostic Analytics",
+)
+SAFE_TOOL_PROGRESS_MESSAGES = {
+    "load_skill": "Loading the relevant analytics context...",
+    "validate_sql": "Checking the query against the safety rules...",
+    "run_readonly_sql": "Running the approved read-only query...",
+    "get_lead_360": "Fetching the Lead 360 context...",
+    "get_diagnostic_funnel_snapshot": "Running diagnostic funnel checks...",
+    "get_diagnostic_source_snapshot": "Reviewing source performance signals...",
+    "get_diagnostic_source_quality_snapshot": "Checking source quality signals...",
+    "get_diagnostic_business_change_snapshot": "Comparing business performance changes...",
+}
 
 SQL_FENCE_RE = re.compile(r"```(?:sql)?\s*.*?```", re.IGNORECASE | re.DOTALL)
 STRINGIFIED_REASONING_BLOCK_RE = re.compile(
@@ -111,6 +129,13 @@ QUESTION_PICKER_CONFIGS: tuple[dict[str, Any], ...] = (
         "selectbox_label": "Lead 360 coverage",
         "placeholder": "Choose a supported Lead 360 question",
         "path": LEAD_360_INPUT_QUESTIONS_PATH,
+    },
+    {
+        "key": "diagnostic_analytics",
+        "title": "Diagnostic Analytics",
+        "selectbox_label": "Diagnostic Analytics coverage",
+        "placeholder": "Choose a supported Diagnostic Analytics question",
+        "path": DIAGNOSTIC_INPUT_QUESTIONS_PATH,
     },
     {
         "key": "appointment_analytics",
@@ -714,6 +739,143 @@ class AgentTimingCallback(BaseCallbackHandler):
         self._finish(run_id, status="error", error=error)
 
 
+def safe_tool_progress_message(tool_name: str) -> str:
+    normalized_name = tool_name.strip()
+    if normalized_name in SAFE_TOOL_PROGRESS_MESSAGES:
+        return SAFE_TOOL_PROGRESS_MESSAGES[normalized_name]
+    if normalized_name.startswith("get_diagnostic_"):
+        return "Running diagnostic checks..."
+    return "Running an approved tool..."
+
+
+class AgentProgressCallback(BaseCallbackHandler):
+    """Emit safe user-facing progress updates from LangChain callbacks."""
+
+    raise_error = False
+
+    def __init__(self, emit: Callable[[str], None]) -> None:
+        super().__init__()
+        self.emit = emit
+        self._seen_model_runs: set[str] = set()
+        self._last_tool_name: str | None = None
+
+    def _emit(self, message: str) -> None:
+        try:
+            self.emit(message)
+        except Exception:
+            return
+
+    def _tool_names_from_generation(self, generation: Any) -> list[str]:
+        message = getattr(generation, "message", None)
+        if message is None and isinstance(generation, dict):
+            message = generation.get("message")
+        if message is None:
+            return []
+
+        tool_calls = getattr(message, "tool_calls", None)
+        if tool_calls is None and isinstance(message, dict):
+            tool_calls = message.get("tool_calls")
+        if not tool_calls:
+            return []
+
+        names = []
+        for tool_call in tool_calls:
+            safe_tool_call = safe_json(tool_call)
+            if not isinstance(safe_tool_call, dict):
+                continue
+            name = safe_tool_call.get("name")
+            if name:
+                names.append(str(name))
+        return names
+
+    def _tool_names_from_response(self, response: Any) -> list[str]:
+        names = []
+        generations = getattr(response, "generations", None)
+        if generations is None and isinstance(response, dict):
+            generations = response.get("generations")
+        if not generations:
+            return names
+
+        for generation_group in generations:
+            if isinstance(generation_group, list):
+                generation_items = generation_group
+            else:
+                generation_items = [generation_group]
+            for generation in generation_items:
+                names.extend(self._tool_names_from_generation(generation))
+        return names
+
+    def _message_for_model_start(self) -> str:
+        if not self._seen_model_runs:
+            return "Calling the router model..."
+
+        if self._last_tool_name == "load_skill":
+            return "Drafting a safe read-only SQL query..."
+        if self._last_tool_name == "run_readonly_sql":
+            return "Generating the final answer from query results..."
+        if self._last_tool_name == "get_lead_360":
+            return "Generating the Lead 360 answer..."
+        if self._last_tool_name and self._last_tool_name.startswith("get_diagnostic_"):
+            return "Generating the diagnostic answer..."
+        if len(self._seen_model_runs) == 1:
+            return "Selecting the right skill and planning the next step..."
+        return "Generating the final answer..."
+
+    def _start_model(self, run_id: Any) -> None:
+        run_key = str(run_id)
+        if run_key in self._seen_model_runs:
+            return
+        self._emit(self._message_for_model_start())
+        self._seen_model_runs.add(run_key)
+
+    def on_chat_model_start(
+        self,
+        serialized: dict[str, Any],
+        messages: list[list[Any]],
+        *,
+        run_id: Any,
+        **kwargs: Any,
+    ) -> None:
+        self._start_model(run_id)
+
+    def on_llm_start(
+        self,
+        serialized: dict[str, Any],
+        prompts: list[str],
+        *,
+        run_id: Any,
+        **kwargs: Any,
+    ) -> None:
+        self._start_model(run_id)
+
+    def on_tool_start(
+        self,
+        serialized: dict[str, Any],
+        input_str: str,
+        *,
+        run_id: Any,
+        **kwargs: Any,
+    ) -> None:
+        tool_name = serialized_run_name(serialized, "tool")
+        self._last_tool_name = tool_name
+        self._emit(safe_tool_progress_message(tool_name))
+
+    def on_tool_end(self, output: Any, *, run_id: Any, **kwargs: Any) -> None:
+        self._emit("Reviewing the tool result...")
+
+    def on_tool_error(self, error: BaseException, *, run_id: Any, **kwargs: Any) -> None:
+        self._emit("The tool returned an error, preparing a readable response...")
+
+    def on_llm_end(self, response: Any, *, run_id: Any, **kwargs: Any) -> None:
+        tool_names = self._tool_names_from_response(response)
+        if not tool_names:
+            return
+
+        for tool_name in tool_names:
+            self._last_tool_name = tool_name
+            self._emit(safe_tool_progress_message(tool_name))
+
+
 def build_timing_breakdown(
     events: list[dict[str, Any]],
     *,
@@ -790,7 +952,7 @@ def enabled_skill_summary(enabled_skills: tuple[str, ...]) -> str:
         readable_skill_name(skill.name)
         for skill in list_skill_metadata(allowed_skill_names=enabled)
     ]
-    names.append("Lead 360")
+    names.extend(name for name in SUPPLEMENTAL_FLOW_NAMES if name not in names)
     return ", ".join(names) if names else "No enabled skills"
 
 
@@ -962,9 +1124,23 @@ def render_source_data_dropdown(details: dict[str, Any]) -> None:
         render_result_table(rows)
 
 
-def render_answer_block(clean_answer: str) -> None:
+def stream_answer_text(clean_answer: str) -> Iterator[str]:
+    delayed_chunks = 0
+    for chunk in re.split(r"(\s+)", clean_answer):
+        if not chunk:
+            continue
+        yield chunk
+        if chunk.strip() and delayed_chunks < 80:
+            delayed_chunks += 1
+            time.sleep(0.008)
+
+
+def render_answer_block(clean_answer: str, *, stream: bool = False) -> None:
     with st.container(border=True):
-        st.markdown(clean_answer)
+        if stream and hasattr(st, "write_stream"):
+            st.write_stream(stream_answer_text(clean_answer))
+        else:
+            st.markdown(clean_answer)
 
 
 def render_reference_intro(turn: dict[str, Any]) -> None:
@@ -1212,9 +1388,31 @@ def persist_poc_turn(**kwargs: Any) -> None:
         return
 
 
-def run_question(question: str) -> dict[str, Any]:
+def run_question(
+    question: str,
+    *,
+    progress_callback: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    def emit_progress(message_or_event: str | dict[str, Any]) -> None:
+        if progress_callback is None:
+            return
+        if isinstance(message_or_event, dict):
+            message = str(message_or_event.get("message") or "").strip()
+        else:
+            message = str(message_or_event).strip()
+        if not message:
+            return
+        try:
+            progress_callback(message)
+        except Exception:
+            return
+
+    emit_progress("Understanding your question...")
+    started_at = time.perf_counter()
     organization_id = current_organization_id()
+    emit_progress("Loading recent conversation context...")
     poc_history = fetch_router_poc_chat_history(organization_id)
+    emit_progress("Loading the configured agents...")
     components = get_flow_components(
         config_mtime_ns=CONFIG_PATH.stat().st_mtime_ns,
         prompt_mtime_ns=SQL_AGENT_PROMPT_PATH.stat().st_mtime_ns,
@@ -1223,7 +1421,9 @@ def run_question(question: str) -> dict[str, Any]:
         diagnostic_prompt_mtime_ns=DIAGNOSTIC_PROMPT_PATH.stat().st_mtime_ns,
     )
     timing_callback = AgentTimingCallback()
-    started_at = time.perf_counter()
+    callbacks: list[BaseCallbackHandler] = [timing_callback]
+    if progress_callback is not None:
+        callbacks.append(AgentProgressCallback(emit_progress))
     turn = answer_user_question(
         question,
         poc_history,
@@ -1231,7 +1431,8 @@ def run_question(question: str) -> dict[str, Any]:
         sql_agent=components["sql_agent"],
         lead_360_agent=components["lead_360_agent"],
         diagnostic_agent=components["diagnostic_agent"],
-        config={"callbacks": [timing_callback]},
+        config={"callbacks": callbacks},
+        progress_callback=emit_progress,
     )
     elapsed_seconds = time.perf_counter() - started_at
 
@@ -1551,11 +1752,11 @@ def render_process_trace(turn: dict[str, Any]) -> None:
             render_raw_messages(turn["trace_messages"])
 
 
-def render_answer(turn: dict[str, Any]) -> None:
+def render_answer(turn: dict[str, Any], *, stream: bool = False) -> None:
     details = turn.get("execution_details") or extract_execution_details(turn["trace_messages"])
     clean_answer = clean_answer_for_display(turn["answer"])
 
-    render_answer_block(clean_answer)
+    render_answer_block(clean_answer, stream=stream)
     render_reference_intro(turn)
     render_timing_breakdown(turn)
     render_source_data_dropdown(details)
@@ -1568,6 +1769,20 @@ def render_turn(turn: dict[str, Any]) -> None:
         st.markdown(turn["question"])
     with st.chat_message("assistant", avatar=str(BOT_LOGO_PATH)):
         render_answer(turn)
+
+
+def make_status_progress_writer(status_box: Any) -> Callable[[str], None]:
+    last_message = {"value": ""}
+
+    def write_progress(message: str) -> None:
+        clean_message = str(message or "").strip()
+        if not clean_message or clean_message == last_message["value"]:
+            return
+        last_message["value"] = clean_message
+        status_box.update(label=clean_message, state="running")
+        status_box.write(clean_message)
+
+    return write_progress
 
 
 def render_question_picker(
@@ -1746,27 +1961,30 @@ def main() -> None:
             st.markdown(question)
 
         with st.chat_message("assistant", avatar=str(BOT_LOGO_PATH)):
-            with st.spinner("Routing the question, then running the selected flow..."):
-                started_at = time.perf_counter()
-                try:
-                    turn = run_question(question)
-                except Exception as exc:  # noqa: BLE001 - Streamlit should show readable errors.
-                    elapsed_seconds = time.perf_counter() - started_at
-                    turn = {
-                        "question": question,
-                        "answer": f"Something failed while running the agent: `{type(exc).__name__}: {exc}`",
-                        "trace_messages": [],
-                        "all_messages": [],
-                        "elapsed_seconds": elapsed_seconds,
-                        "timing": {
-                            "total_seconds": elapsed_seconds,
-                            "events": [],
-                        },
-                        "lead_360_diagnostics": None,
-                        "execution_details": {},
-                    }
+            status_box = st.status("Starting the agent...", expanded=True)
+            write_progress = make_status_progress_writer(status_box)
+            started_at = time.perf_counter()
+            try:
+                turn = run_question(question, progress_callback=write_progress)
+                status_box.update(label="Answer ready", state="complete", expanded=False)
+            except Exception as exc:  # noqa: BLE001 - Streamlit should show readable errors.
+                elapsed_seconds = time.perf_counter() - started_at
+                status_box.update(label="Something failed while running the agent", state="error")
+                turn = {
+                    "question": question,
+                    "answer": f"Something failed while running the agent: `{type(exc).__name__}: {exc}`",
+                    "trace_messages": [],
+                    "all_messages": [],
+                    "elapsed_seconds": elapsed_seconds,
+                    "timing": {
+                        "total_seconds": elapsed_seconds,
+                        "events": [],
+                    },
+                    "lead_360_diagnostics": None,
+                    "execution_details": {},
+                }
 
-            render_answer(turn)
+            render_answer(turn, stream=True)
 
         st.session_state.turns.append(turn)
         prune_turn_history()

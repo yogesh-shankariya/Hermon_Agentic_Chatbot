@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import importlib
 import importlib.util
 import re
@@ -259,6 +260,11 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             ("What happened with Vedran?", "lead_360"),
             ("Give me the 360 view of John Smith.", "lead_360"),
             ("Which source should we scale?", "diagnostic_analytics"),
+            ("How are we doing in April compared to March?", "diagnostic_analytics"),
+            ("How are we doing in April compared the March?", "diagnostic_analytics"),
+            ("Compare lead count in April vs March.", "sql_analytics"),
+            ("What is the lead trend?", "sql_analytics"),
+            ("What should I pay attention to for my business?", "diagnostic_analytics"),
             ("Delete these leads.", "unsupported"),
         ]
 
@@ -266,6 +272,73 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             with self.subTest(question=question):
                 self.assertIn(question, prompt)
                 self.assertIn(route, prompt)
+
+    def test_streamlit_ui_includes_diagnostic_question_picker(self):
+        ui_text = (APP_DIR / "ui" / "streamlit_app.py").read_text(encoding="utf-8")
+
+        self.assertIn("DIAGNOSTIC_INPUT_QUESTIONS_PATH", ui_text)
+        self.assertIn('"key": "diagnostic_analytics"', ui_text)
+        self.assertIn('"title": "Diagnostic Analytics"', ui_text)
+        self.assertIn('"selectbox_label": "Diagnostic Analytics coverage"', ui_text)
+
+    def test_streamlit_enabled_skill_summary_includes_non_sql_flows(self):
+        ui_text = (APP_DIR / "ui" / "streamlit_app.py").read_text(encoding="utf-8")
+
+        self.assertIn("SUPPLEMENTAL_FLOW_NAMES", ui_text)
+        self.assertIn('"Multi Skills Analytics"', ui_text)
+        self.assertIn('"Lead 360"', ui_text)
+        self.assertIn('"Diagnostic Analytics"', ui_text)
+        self.assertIn("names.extend", ui_text)
+
+    def test_diagnostic_question_bank_excludes_data_quality_prompts(self):
+        question_path = (
+            APP_DIR
+            / "testing"
+            / "input"
+            / "diagnostic_analytics_clean_test_questions.csv"
+        )
+        with question_path.open("r", encoding="utf-8", newline="") as question_file:
+            rows = list(csv.DictReader(question_file))
+
+        self.assertGreaterEqual(len(rows), 40)
+        self.assertEqual(
+            {row["expected_skill"] for row in rows},
+            {"diagnostic_analytics"},
+        )
+        questions = [row["question"] for row in rows]
+        question_text = "\n".join(question.lower() for question in questions)
+        forbidden_data_quality_terms = [
+            "can we trust",
+            "reliable",
+            "data quality",
+            "data-quality",
+            "attribution incomplete",
+            "unknown attribution",
+            "missing first sources",
+            "missing last sources",
+            "orphaned",
+            "fathom records",
+        ]
+        for term in forbidden_data_quality_terms:
+            with self.subTest(term=term):
+                self.assertNotIn(term, question_text)
+
+        forbidden_relative_date_terms = [
+            "this week",
+            "this month",
+            "last month",
+            "current month",
+            "current-week",
+        ]
+        for term in forbidden_relative_date_terms:
+            with self.subTest(term=term):
+                self.assertNotIn(term, question_text)
+
+        self.assertIn("Where are we losing people in the funnel?", questions)
+        self.assertIn("What should I pay attention to for my business?", questions)
+        self.assertIn("What changed in April 2026 compared to March 2026?", questions)
+        self.assertEqual(rows[0]["question_id"], "DAQ-001")
+        self.assertEqual(rows[0]["question"], "Where are we losing people in the funnel?")
 
     def test_orchestrator_routes_lead_360_examples_to_lead_flow(self):
         orchestrator = self._import_orchestrator()
@@ -305,6 +378,9 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             "Which source looks good but may be misleading?",
             "Can we trust source performance?",
             "What changed this month?",
+            "How are we doing in April compared the March?",
+            "Are we doing better or worse in April than March?",
+            "What should I pay attention to for my business?",
             "What should sales focus on this week?",
             "What should marketing investigate this week?",
             "Which source has signed contracts but low collected cash?",

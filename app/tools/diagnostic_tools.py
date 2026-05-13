@@ -35,6 +35,73 @@ SUPPORTED_SOURCE_BASIS = {
     "last": "last_source",
 }
 DEFAULT_LOOKBACK_MONTHS = 6
+MONTH_ABBREVIATIONS = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+
+FUNNEL_STEP_LABELS = {
+    "total_leads": "Total leads",
+    "booked_call": "Booked a call",
+    "completed_call": "Completed a call",
+    "signed_contract": "Signed contract",
+    "paid_converted": "Paid / converted",
+}
+
+FUNNEL_STAGE_LABELS = {
+    "lead_only": "Never booked a call",
+    "booked_not_completed": "Booked but did not complete call",
+    "completed_not_signed": "Completed call but did not sign",
+    "signed_not_paid": "Signed but not paid",
+    "paid": "Paid / converted",
+    "lost": "Lost",
+    "unqualified": "Unqualified",
+    "refunded": "Refunded",
+}
+
+FUNNEL_STAGE_HINTS = {
+    "lead_only": "Leads did not reach the call stage",
+    "booked_not_completed": "Attendance or confirmation process needs review",
+    "completed_not_signed": "Post-call conversion needs review",
+    "signed_not_paid": "Payment collection after signing needs review",
+    "paid": "Converted group",
+    "lost": "Marked lost",
+    "unqualified": "Marked unqualified",
+    "refunded": "Paid then refunded",
+}
+
+DROP_POINT_METADATA = {
+    "lead_to_booked": {
+        "drop_point_label": "No booked-call record",
+        "from_step_label": "Total leads",
+        "to_step_label": "Booked a call",
+    },
+    "booked_to_completed": {
+        "drop_point_label": "Booked but no completed-call record",
+        "from_step_label": "Booked a call",
+        "to_step_label": "Completed a call",
+    },
+    "completed_to_signed": {
+        "drop_point_label": "Completed call but no signed-contract record",
+        "from_step_label": "Completed a call",
+        "to_step_label": "Signed contract",
+    },
+    "signed_to_paid": {
+        "drop_point_label": "Signed but no paid-payment record",
+        "from_step_label": "Signed contract",
+        "to_step_label": "Paid / converted",
+    },
+}
 
 SNAPSHOT_DATE_BOUNDS_SQL = """
 SELECT
@@ -185,6 +252,209 @@ def _json_ready(value: Any) -> Any:
     return value
 
 
+def _int_or_none(value: Any) -> int | None:
+    if value is None:
+        return None
+    return int(value)
+
+
+def _number_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _business_date_display(value: date) -> str:
+    return f"{value.day} {MONTH_ABBREVIATIONS[value.month - 1]} {value.year}"
+
+
+def _period_metadata(start_date: str, end_date: str, anchor_date: str) -> dict[str, str]:
+    parsed_start = _parse_date(start_date)
+    parsed_end = _parse_date(end_date)
+    if parsed_start is None or parsed_end is None:
+        raise ValueError("Tool period dates could not be parsed.")
+
+    display_end = parsed_end - timedelta(days=1)
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "display_start_date": parsed_start.isoformat(),
+        "display_end_date": display_end.isoformat(),
+        "date_field": "lead_created_at",
+        "date_range_display": (
+            f"{_business_date_display(parsed_start)} to {_business_date_display(display_end)}"
+        ),
+        "anchor_date": anchor_date,
+    }
+
+
+def _funnel_stage_label(funnel_stage: Any) -> str:
+    clean_stage = str(funnel_stage or "").strip()
+    if clean_stage in FUNNEL_STAGE_LABELS:
+        return FUNNEL_STAGE_LABELS[clean_stage]
+    return "Unknown"
+
+
+def _funnel_stage_hint(funnel_stage: Any) -> str:
+    clean_stage = str(funnel_stage or "").strip()
+    return FUNNEL_STAGE_HINTS.get(clean_stage, "Review this final funnel position")
+
+
+def _funnel_sections(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    funnel_flow: list[dict[str, Any]] = []
+    final_position_breakdown: list[dict[str, Any]] = []
+    activity_counts: dict[str, int] = {
+        "appointment_records": 0,
+        "completed_call_records": 0,
+        "no_show_records": 0,
+        "signed_contract_records": 0,
+        "paid_payment_records": 0,
+    }
+    total_row: dict[str, Any] | None = None
+
+    for row in rows:
+        row_type = row.get("row_type")
+        if row_type == "total":
+            total_row = row
+            continue
+
+        if row_type == "funnel_flow":
+            step_key = str(row.get("step_key") or "").strip()
+            funnel_flow.append(
+                {
+                    "step_order": _int_or_none(row.get("step_order")),
+                    "step_key": step_key,
+                    "step_label": FUNNEL_STEP_LABELS.get(step_key, step_key.replace("_", " ").title()),
+                    "leads_reached": _int_or_none(row.get("leads_reached")) or 0,
+                    "dropped_from_previous": _int_or_none(row.get("dropped_from_previous")),
+                    "drop_rate_from_previous": _number_or_none(row.get("drop_rate_from_previous")),
+                    "conversion_rate_from_previous": _number_or_none(
+                        row.get("conversion_rate_from_previous")
+                    ),
+                }
+            )
+            continue
+
+        if row_type == "stage":
+            pct_of_total_leads = row.get("pct_of_total_leads")
+            if pct_of_total_leads is None:
+                pct_of_total_leads = row.get("pct_of_leads")
+            funnel_stage = row.get("funnel_stage")
+            final_position_breakdown.append(
+                {
+                    "funnel_stage": funnel_stage,
+                    "display_label": row.get("display_label") or _funnel_stage_label(funnel_stage),
+                    "lead_count": _int_or_none(row.get("lead_count")) or 0,
+                    "pct_of_total_leads": _number_or_none(pct_of_total_leads),
+                    "net_collected_amount": _number_or_none(row.get("net_collected_amount")),
+                    "interpretation_hint": row.get("interpretation_hint")
+                    or _funnel_stage_hint(funnel_stage),
+                }
+            )
+            continue
+
+        if row_type == "activity_counts":
+            activity_counts = {
+                "appointment_records": _int_or_none(row.get("appointment_records")) or 0,
+                "completed_call_records": _int_or_none(row.get("completed_call_records")) or 0,
+                "no_show_records": _int_or_none(row.get("no_show_records")) or 0,
+                "signed_contract_records": _int_or_none(row.get("signed_contract_records")) or 0,
+                "paid_payment_records": _int_or_none(row.get("paid_payment_records")) or 0,
+            }
+
+    if total_row is not None and not any(activity_counts.values()):
+        activity_counts = {
+            "appointment_records": _int_or_none(total_row.get("appointment_count")) or 0,
+            "completed_call_records": _int_or_none(total_row.get("completed_call_count")) or 0,
+            "no_show_records": _int_or_none(total_row.get("no_show_count")) or 0,
+            "signed_contract_records": _int_or_none(total_row.get("signed_contract_count")) or 0,
+            "paid_payment_records": _int_or_none(total_row.get("paid_payment_count")) or 0,
+        }
+
+    funnel_flow.sort(key=lambda item: item["step_order"] or 0)
+    final_position_breakdown.sort(
+        key=lambda item: (
+            -(item["lead_count"] or 0),
+            str(item.get("funnel_stage") or ""),
+        )
+    )
+
+    stuck_positions = [
+        item
+        for item in final_position_breakdown
+        if item.get("funnel_stage") not in {"paid"} and (item.get("lead_count") or 0) > 0
+    ]
+    if stuck_positions:
+        stuck_positions[0]["interpretation_hint"] = "Largest visible stuck group"
+
+    total_leads = next(
+        (
+            item["leads_reached"]
+            for item in funnel_flow
+            if item.get("step_key") == "total_leads"
+        ),
+        None,
+    )
+    if total_leads is None and total_row is not None:
+        total_leads = _int_or_none(total_row.get("lead_count"))
+    if total_leads is None and final_position_breakdown:
+        total_leads = sum(item["lead_count"] for item in final_position_breakdown)
+
+    return {
+        "funnel_flow": funnel_flow,
+        "final_position_breakdown": final_position_breakdown,
+        "activity_counts": activity_counts,
+        "total_leads": total_leads or 0,
+    }
+
+
+def _drop_reconciliation(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    reconciled: list[dict[str, Any]] = []
+    for row in rows:
+        drop_point_key = str(row.get("drop_point_key") or "").strip()
+        metadata = DROP_POINT_METADATA.get(drop_point_key, {})
+        movement_dropped_leads = _int_or_none(row.get("movement_dropped_leads")) or 0
+        drop_set_leads = _int_or_none(row.get("drop_set_leads")) or 0
+        offsetting_later_step_leads = (
+            _int_or_none(row.get("offsetting_later_step_leads")) or 0
+        )
+        from_step_label = metadata.get("from_step_label", "Unknown")
+        to_step_label = metadata.get("to_step_label", "Unknown")
+        if offsetting_later_step_leads:
+            reconciliation_note = (
+                f"{drop_set_leads} leads reached {from_step_label} but not {to_step_label}. "
+                f"{offsetting_later_step_leads} leads reached {to_step_label} without a tracked "
+                f"{from_step_label} record, so the movement table shows a net drop of "
+                f"{movement_dropped_leads}."
+            )
+        else:
+            reconciliation_note = (
+                f"{drop_set_leads} leads reached {from_step_label} but not {to_step_label}, "
+                f"matching the movement table drop of {movement_dropped_leads}."
+            )
+        reconciled.append(
+            {
+                "drop_point_key": drop_point_key,
+                "drop_point_label": metadata.get("drop_point_label", "Unknown"),
+                "from_step_label": from_step_label,
+                "to_step_label": to_step_label,
+                "dropped_leads": drop_set_leads,
+                "movement_dropped_leads": movement_dropped_leads,
+                "drop_set_leads": drop_set_leads,
+                "offsetting_later_step_leads": offsetting_later_step_leads,
+                "matches_funnel_flow_drop": offsetting_later_step_leads == 0,
+                "funnel_stage": row.get("funnel_stage"),
+                "conversion_outcome": row.get("conversion_outcome"),
+                "final_position_label": _funnel_stage_label(row.get("funnel_stage")),
+                "lead_count": _int_or_none(row.get("lead_count")) or 0,
+                "pct_of_dropped_leads": _number_or_none(row.get("pct_of_drop_set_leads")),
+                "pct_of_drop_set_leads": _number_or_none(row.get("pct_of_drop_set_leads")),
+                "reconciliation_note": reconciliation_note,
+            }
+        )
+    return reconciled
+
+
 def _error_response(tool_name: str, error: Exception) -> str:
     return _json_response(
         {
@@ -210,6 +480,7 @@ def _error_payload(tool_name: str, error: Exception) -> dict[str, Any]:
 FUNNEL_SQL = """
 WITH scoped AS (
   SELECT
+    dls.lead_id AS lead_id,
     dls.funnel_stage AS funnel_stage,
     dls.conversion_outcome AS conversion_outcome,
     dls.appointment_count AS appointment_count,
@@ -228,7 +499,14 @@ WITH scoped AS (
 ),
 totals AS (
   SELECT
-    COUNT(*)::int AS lead_count,
+    COUNT(*)::int AS total_leads,
+    COUNT(*) FILTER (WHERE appointment_count > 0)::int AS booked_leads,
+    COUNT(*) FILTER (WHERE completed_call_count > 0)::int AS completed_call_leads,
+    COUNT(*) FILTER (WHERE signed_contract_count > 0)::int AS signed_leads,
+    COUNT(*) FILTER (
+      WHERE net_collected_amount > 0
+         OR paid_payment_count > 0
+    )::int AS paid_leads,
     COALESCE(SUM(appointment_count), 0)::int AS appointment_count,
     COALESCE(SUM(completed_call_count), 0)::int AS completed_call_count,
     COALESCE(SUM(no_show_count), 0)::int AS no_show_count,
@@ -240,12 +518,48 @@ totals AS (
     COALESCE(SUM(outstanding_amount), 0)::numeric(12,2) AS outstanding_amount
   FROM scoped
 ),
+funnel_steps AS (
+  SELECT
+    1 AS step_order,
+    'total_leads' AS step_key,
+    total_leads AS leads_reached,
+    NULL::int AS previous_step_leads
+  FROM totals
+  UNION ALL
+  SELECT
+    2 AS step_order,
+    'booked_call' AS step_key,
+    booked_leads AS leads_reached,
+    total_leads AS previous_step_leads
+  FROM totals
+  UNION ALL
+  SELECT
+    3 AS step_order,
+    'completed_call' AS step_key,
+    completed_call_leads AS leads_reached,
+    booked_leads AS previous_step_leads
+  FROM totals
+  UNION ALL
+  SELECT
+    4 AS step_order,
+    'signed_contract' AS step_key,
+    signed_leads AS leads_reached,
+    completed_call_leads AS previous_step_leads
+  FROM totals
+  UNION ALL
+  SELECT
+    5 AS step_order,
+    'paid_converted' AS step_key,
+    paid_leads AS leads_reached,
+    signed_leads AS previous_step_leads
+  FROM totals
+),
 stage_breakdown AS (
   SELECT
     funnel_stage,
     conversion_outcome,
     COUNT(*)::int AS lead_count,
-    ROUND(100.0 * COUNT(*) / NULLIF((SELECT lead_count FROM totals), 0), 2) AS pct_of_leads,
+    ROUND(100.0 * COUNT(*) / NULLIF((SELECT total_leads FROM totals), 0), 2) AS pct_of_leads,
     COALESCE(SUM(appointment_count), 0)::int AS appointment_count,
     COALESCE(SUM(completed_call_count), 0)::int AS completed_call_count,
     COALESCE(SUM(signed_contract_count), 0)::int AS signed_contract_count,
@@ -253,45 +567,357 @@ stage_breakdown AS (
     COALESCE(SUM(net_collected_amount), 0)::numeric(12,2) AS net_collected_amount
   FROM scoped
   GROUP BY funnel_stage, conversion_outcome
+),
+unioned AS (
+  SELECT
+    'total' AS row_type,
+    NULL::int AS step_order,
+    NULL::text AS step_key,
+    NULL::text AS step_label,
+    NULL::int AS leads_reached,
+    NULL::int AS dropped_from_previous,
+    NULL::numeric AS drop_rate_from_previous,
+    NULL::numeric AS conversion_rate_from_previous,
+    NULL::text AS funnel_stage,
+    NULL::text AS display_label,
+    NULL::text AS conversion_outcome,
+    total_leads AS lead_count,
+    NULL::numeric AS pct_of_leads,
+    NULL::numeric AS pct_of_total_leads,
+    NULL::text AS interpretation_hint,
+    appointment_count,
+    completed_call_count,
+    no_show_count,
+    signed_contract_count,
+    paid_payment_count,
+    NULL::int AS appointment_records,
+    NULL::int AS completed_call_records,
+    NULL::int AS no_show_records,
+    NULL::int AS signed_contract_records,
+    NULL::int AS paid_payment_records,
+    gross_paid_amount,
+    refund_amount,
+    net_collected_amount,
+    outstanding_amount
+  FROM totals
+  UNION ALL
+  SELECT
+    'funnel_flow' AS row_type,
+    step_order,
+    step_key,
+    NULL::text AS step_label,
+    leads_reached,
+    CASE
+      WHEN previous_step_leads IS NULL THEN NULL
+      ELSE GREATEST(previous_step_leads - leads_reached, 0)
+    END AS dropped_from_previous,
+    CASE
+      WHEN previous_step_leads IS NULL OR previous_step_leads = 0 THEN NULL
+      ELSE ROUND(
+        100.0 * GREATEST(previous_step_leads - leads_reached, 0) / previous_step_leads,
+        2
+      )
+    END AS drop_rate_from_previous,
+    CASE
+      WHEN previous_step_leads IS NULL OR previous_step_leads = 0 THEN NULL
+      ELSE ROUND(100.0 * leads_reached / previous_step_leads, 2)
+    END AS conversion_rate_from_previous,
+    NULL::text AS funnel_stage,
+    NULL::text AS display_label,
+    NULL::text AS conversion_outcome,
+    NULL::int AS lead_count,
+    NULL::numeric AS pct_of_leads,
+    NULL::numeric AS pct_of_total_leads,
+    NULL::text AS interpretation_hint,
+    NULL::int AS appointment_count,
+    NULL::int AS completed_call_count,
+    NULL::int AS no_show_count,
+    NULL::int AS signed_contract_count,
+    NULL::int AS paid_payment_count,
+    NULL::int AS appointment_records,
+    NULL::int AS completed_call_records,
+    NULL::int AS no_show_records,
+    NULL::int AS signed_contract_records,
+    NULL::int AS paid_payment_records,
+    NULL::numeric AS gross_paid_amount,
+    NULL::numeric AS refund_amount,
+    NULL::numeric AS net_collected_amount,
+    NULL::numeric AS outstanding_amount
+  FROM funnel_steps
+  UNION ALL
+  SELECT
+    'stage' AS row_type,
+    NULL::int AS step_order,
+    NULL::text AS step_key,
+    NULL::text AS step_label,
+    NULL::int AS leads_reached,
+    NULL::int AS dropped_from_previous,
+    NULL::numeric AS drop_rate_from_previous,
+    NULL::numeric AS conversion_rate_from_previous,
+    funnel_stage,
+    NULL::text AS display_label,
+    conversion_outcome,
+    lead_count,
+    pct_of_leads,
+    pct_of_leads AS pct_of_total_leads,
+    NULL::text AS interpretation_hint,
+    appointment_count,
+    completed_call_count,
+    NULL::int AS no_show_count,
+    signed_contract_count,
+    paid_payment_count,
+    NULL::int AS appointment_records,
+    NULL::int AS completed_call_records,
+    NULL::int AS no_show_records,
+    NULL::int AS signed_contract_records,
+    NULL::int AS paid_payment_records,
+    NULL::numeric AS gross_paid_amount,
+    NULL::numeric AS refund_amount,
+    net_collected_amount,
+    NULL::numeric AS outstanding_amount
+  FROM stage_breakdown
+  UNION ALL
+  SELECT
+    'activity_counts' AS row_type,
+    NULL::int AS step_order,
+    NULL::text AS step_key,
+    NULL::text AS step_label,
+    NULL::int AS leads_reached,
+    NULL::int AS dropped_from_previous,
+    NULL::numeric AS drop_rate_from_previous,
+    NULL::numeric AS conversion_rate_from_previous,
+    NULL::text AS funnel_stage,
+    NULL::text AS display_label,
+    NULL::text AS conversion_outcome,
+    NULL::int AS lead_count,
+    NULL::numeric AS pct_of_leads,
+    NULL::numeric AS pct_of_total_leads,
+    NULL::text AS interpretation_hint,
+    appointment_count,
+    completed_call_count,
+    no_show_count,
+    signed_contract_count,
+    paid_payment_count,
+    appointment_count AS appointment_records,
+    completed_call_count AS completed_call_records,
+    no_show_count AS no_show_records,
+    signed_contract_count AS signed_contract_records,
+    paid_payment_count AS paid_payment_records,
+    NULL::numeric AS gross_paid_amount,
+    NULL::numeric AS refund_amount,
+    NULL::numeric AS net_collected_amount,
+    NULL::numeric AS outstanding_amount
+  FROM totals
 )
 SELECT
-  'total' AS row_type,
-  NULL::text AS funnel_stage,
-  NULL::text AS conversion_outcome,
+  row_type,
+  step_order,
+  step_key,
+  step_label,
+  leads_reached,
+  dropped_from_previous,
+  drop_rate_from_previous,
+  conversion_rate_from_previous,
+  funnel_stage,
+  display_label,
+  conversion_outcome,
   lead_count,
-  NULL::numeric AS pct_of_leads,
+  pct_of_leads,
+  pct_of_total_leads,
+  interpretation_hint,
   appointment_count,
   completed_call_count,
   no_show_count,
   signed_contract_count,
   paid_payment_count,
+  appointment_records,
+  completed_call_records,
+  no_show_records,
+  signed_contract_records,
+  paid_payment_records,
   gross_paid_amount,
   refund_amount,
   net_collected_amount,
   outstanding_amount
-FROM totals
-UNION ALL
-SELECT
-  'stage' AS row_type,
-  funnel_stage,
-  conversion_outcome,
-  lead_count,
-  pct_of_leads,
-  appointment_count,
-  completed_call_count,
-  NULL::int AS no_show_count,
-  signed_contract_count,
-  paid_payment_count,
-  NULL::numeric AS gross_paid_amount,
-  NULL::numeric AS refund_amount,
-  net_collected_amount,
-  NULL::numeric AS outstanding_amount
-FROM stage_breakdown
+FROM unioned
 ORDER BY
-  row_type DESC,
+  CASE row_type
+    WHEN 'total' THEN 1
+    WHEN 'funnel_flow' THEN 2
+    WHEN 'stage' THEN 3
+    WHEN 'activity_counts' THEN 4
+    ELSE 5
+  END,
+  step_order ASC,
   lead_count DESC,
   funnel_stage ASC,
   conversion_outcome ASC
+"""
+
+DROP_RECONCILIATION_SQL = """
+WITH scoped AS (
+  SELECT
+    dls.lead_id AS lead_id,
+    dls.appointment_count AS appointment_count,
+    dls.completed_call_count AS completed_call_count,
+    dls.signed_contract_count AS signed_contract_count,
+    dls.paid_payment_count AS paid_payment_count,
+    dls.net_collected_amount AS net_collected_amount,
+    dls.funnel_stage AS funnel_stage,
+    dls.conversion_outcome AS conversion_outcome
+  FROM diagnostic_lead_snapshot dls
+  WHERE dls.clerk_org_id = :org_id
+    AND dls.lead_created_at >= CAST(:start_date AS date)
+    AND dls.lead_created_at < CAST(:end_date AS date)
+),
+step_counts AS (
+  SELECT
+    COUNT(*)::int AS total_leads,
+    COUNT(*) FILTER (WHERE appointment_count > 0)::int AS booked_leads,
+    COUNT(*) FILTER (WHERE completed_call_count > 0)::int AS completed_call_leads,
+    COUNT(*) FILTER (WHERE signed_contract_count > 0)::int AS signed_leads,
+    COUNT(*) FILTER (
+      WHERE net_collected_amount > 0
+         OR paid_payment_count > 0
+    )::int AS paid_leads
+  FROM scoped
+),
+movement_drops AS (
+  SELECT
+    'lead_to_booked' AS drop_point_key,
+    GREATEST(total_leads - booked_leads, 0)::int AS movement_dropped_leads
+  FROM step_counts
+  UNION ALL
+  SELECT
+    'booked_to_completed' AS drop_point_key,
+    GREATEST(booked_leads - completed_call_leads, 0)::int AS movement_dropped_leads
+  FROM step_counts
+  UNION ALL
+  SELECT
+    'completed_to_signed' AS drop_point_key,
+    GREATEST(completed_call_leads - signed_leads, 0)::int AS movement_dropped_leads
+  FROM step_counts
+  UNION ALL
+  SELECT
+    'signed_to_paid' AS drop_point_key,
+    GREATEST(signed_leads - paid_leads, 0)::int AS movement_dropped_leads
+  FROM step_counts
+),
+drop_sets AS (
+  SELECT
+    1 AS drop_point_order,
+    'lead_to_booked' AS drop_point_key,
+    lead_id,
+    funnel_stage,
+    conversion_outcome
+  FROM scoped
+  WHERE appointment_count = 0
+  UNION ALL
+  SELECT
+    2 AS drop_point_order,
+    'booked_to_completed' AS drop_point_key,
+    lead_id,
+    funnel_stage,
+    conversion_outcome
+  FROM scoped
+  WHERE appointment_count > 0
+    AND completed_call_count = 0
+  UNION ALL
+  SELECT
+    3 AS drop_point_order,
+    'completed_to_signed' AS drop_point_key,
+    lead_id,
+    funnel_stage,
+    conversion_outcome
+  FROM scoped
+  WHERE completed_call_count > 0
+    AND signed_contract_count = 0
+  UNION ALL
+  SELECT
+    4 AS drop_point_order,
+    'signed_to_paid' AS drop_point_key,
+    lead_id,
+    funnel_stage,
+    conversion_outcome
+  FROM scoped
+  WHERE signed_contract_count > 0
+    AND COALESCE(net_collected_amount, 0) <= 0
+    AND paid_payment_count = 0
+),
+later_without_previous AS (
+  SELECT
+    'lead_to_booked' AS drop_point_key,
+    0::int AS offsetting_later_step_leads
+  UNION ALL
+  SELECT
+    'booked_to_completed' AS drop_point_key,
+    COUNT(*)::int AS offsetting_later_step_leads
+  FROM scoped
+  WHERE appointment_count = 0
+    AND completed_call_count > 0
+  UNION ALL
+  SELECT
+    'completed_to_signed' AS drop_point_key,
+    COUNT(*)::int AS offsetting_later_step_leads
+  FROM scoped
+  WHERE completed_call_count = 0
+    AND signed_contract_count > 0
+  UNION ALL
+  SELECT
+    'signed_to_paid' AS drop_point_key,
+    COUNT(*)::int AS offsetting_later_step_leads
+  FROM scoped
+  WHERE signed_contract_count = 0
+    AND (
+      net_collected_amount > 0
+      OR paid_payment_count > 0
+    )
+),
+reconciled AS (
+  SELECT
+    drop_point_order,
+    drop_point_key,
+    funnel_stage,
+    conversion_outcome,
+    COUNT(*)::int AS lead_count
+  FROM drop_sets
+  GROUP BY
+    drop_point_order,
+    drop_point_key,
+    funnel_stage,
+    conversion_outcome
+),
+drop_totals AS (
+  SELECT
+    drop_point_key,
+    SUM(lead_count)::int AS drop_set_leads
+  FROM reconciled
+  GROUP BY drop_point_key
+)
+SELECT
+  r.drop_point_key,
+  m.movement_dropped_leads,
+  t.drop_set_leads,
+  o.offsetting_later_step_leads,
+  r.funnel_stage,
+  r.conversion_outcome,
+  r.lead_count,
+  CASE
+    WHEN t.drop_set_leads = 0 THEN NULL
+    ELSE ROUND(100.0 * r.lead_count / t.drop_set_leads, 2)
+  END AS pct_of_drop_set_leads
+FROM reconciled r
+JOIN drop_totals t
+  ON t.drop_point_key = r.drop_point_key
+JOIN movement_drops m
+  ON m.drop_point_key = r.drop_point_key
+JOIN later_without_previous o
+  ON o.drop_point_key = r.drop_point_key
+ORDER BY
+  r.drop_point_order ASC,
+  r.lead_count DESC,
+  r.funnel_stage ASC,
+  r.conversion_outcome ASC
 """
 
 SOURCE_SNAPSHOT_SQL_TEMPLATE = """
@@ -804,18 +1430,23 @@ def get_diagnostic_funnel_snapshot(
             "end_date": periods["current_end_date"],
         }
         rows = _query_records(FUNNEL_SQL, params, max_rows=100)
+        drop_rows = _query_records(DROP_RECONCILIATION_SQL, params, max_rows=100)
+        sections = _funnel_sections(rows)
         return _json_ready(
             {
                 "status": "success",
                 "tool": "get_diagnostic_funnel_snapshot",
                 "scope_note": SCOPE_NOTE,
-                "row_count": len(rows),
-                "period": {
-                    "start_date": periods["current_start_date"],
-                    "end_date": periods["current_end_date"],
-                    "anchor_date": periods["period_anchor_date"],
-                    "date_field": "lead_created_at",
-                },
+                "row_count": sections["total_leads"],
+                "period": _period_metadata(
+                    periods["current_start_date"],
+                    periods["current_end_date"],
+                    periods["period_anchor_date"],
+                ),
+                "funnel_flow": sections["funnel_flow"],
+                "drop_reconciliation": _drop_reconciliation(drop_rows),
+                "final_position_breakdown": sections["final_position_breakdown"],
+                "activity_counts": sections["activity_counts"],
                 "rows": rows,
             }
         )
@@ -850,12 +1481,11 @@ def get_diagnostic_source_snapshot(
                 "scope_note": SCOPE_NOTE,
                 "row_count": len(rows),
                 "source_basis": str(source_basis or "first").strip().lower(),
-                "period": {
-                    "start_date": periods["current_start_date"],
-                    "end_date": periods["current_end_date"],
-                    "anchor_date": periods["period_anchor_date"],
-                    "date_field": "lead_created_at",
-                },
+                "period": _period_metadata(
+                    periods["current_start_date"],
+                    periods["current_end_date"],
+                    periods["period_anchor_date"],
+                ),
                 "rows": rows,
             }
         )
@@ -892,12 +1522,11 @@ def get_diagnostic_source_quality_snapshot(
                 "scope_note": SCOPE_NOTE,
                 "row_count": len(rows),
                 "source_basis": str(source_basis or "first").strip().lower(),
-                "period": {
-                    "start_date": periods["current_start_date"],
-                    "end_date": periods["current_end_date"],
-                    "anchor_date": periods["period_anchor_date"],
-                    "date_field": "lead_created_at",
-                },
+                "period": _period_metadata(
+                    periods["current_start_date"],
+                    periods["current_end_date"],
+                    periods["period_anchor_date"],
+                ),
                 "overall": overall,
                 "sources": sources,
                 "rows": rows,
@@ -938,18 +1567,16 @@ def get_diagnostic_business_change_snapshot(
                 "scope_note": SCOPE_NOTE,
                 "row_count": len(rows),
                 "periods": {
-                    "current": {
-                        "start_date": periods["current_start_date"],
-                        "end_date": periods["current_end_date"],
-                        "anchor_date": periods["period_anchor_date"],
-                        "date_field": "lead_created_at",
-                    },
-                    "previous": {
-                        "start_date": periods["previous_start_date"],
-                        "end_date": periods["previous_end_date"],
-                        "anchor_date": periods["period_anchor_date"],
-                        "date_field": "lead_created_at",
-                    },
+                    "current": _period_metadata(
+                        periods["current_start_date"],
+                        periods["current_end_date"],
+                        periods["period_anchor_date"],
+                    ),
+                    "previous": _period_metadata(
+                        periods["previous_start_date"],
+                        periods["previous_end_date"],
+                        periods["period_anchor_date"],
+                    ),
                 },
                 "rows": rows,
             }

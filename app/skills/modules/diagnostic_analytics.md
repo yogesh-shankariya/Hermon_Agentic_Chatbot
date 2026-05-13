@@ -59,6 +59,8 @@ which source has booked calls but low paid revenue
 which source has signed contracts but low collected cash
 what sales should focus on
 what marketing should investigate
+what the business should pay attention to
+what needs attention
 ```
 
 Example supported questions:
@@ -72,8 +74,11 @@ Which source has high lead volume but weak conversion?
 Which source has booked calls but low paid revenue?
 Which source has signed contracts but low collected cash?
 What changed this month?
+How are we doing in April compared to March?
+How did we do in April vs March?
 What should sales focus on this week?
 What should marketing investigate this week?
+What should I pay attention to for my business?
 ```
 
 ---
@@ -197,7 +202,7 @@ previous_outstanding_amount
 
 The source tables used by normal revenue analytics store money in minor units, but that conversion is completed before values are written into `diagnostic_lead_snapshot`.
 
-Diagnostic answers must use diagnostic tool money values exactly as returned and format them as EUR. Applying `/ 100` again would understate the money by 100x.
+Diagnostic answers must use diagnostic tool money values exactly as returned and format them with the `€` symbol. Applying `/ 100` again would understate the money by 100x.
 
 ---
 
@@ -253,11 +258,11 @@ May 2026 = 2026-05-01 to 2026-06-01
 
 Do not pass the last calendar day as `end_date` for full-month requests.
 
-If the user does not give dates, rely on the tool defaults and state the returned period exactly.
+If the user does not give dates, rely on the tool defaults and state the returned display period exactly.
 The diagnostic tool default is a rolling 6-month `lead_created_at` window ending at the latest available snapshot lead date plus one exclusive day.
 Do not narrow an undated diagnostic question to month-to-date unless the user explicitly asks for the current month.
 
-For relative wording like "this week", "this month", or "last month", do not assume calendar dates in the answer. Use the period metadata returned by the tool and say the exact returned start and end dates.
+For relative wording like "this week", "this month", or "last month", do not assume calendar dates in the answer. Use the period metadata returned by the tool and say the exact returned display dates.
 
 Do not invent dates.
 
@@ -266,6 +271,9 @@ Use the period metadata returned by the tool:
 ```text
 period.start_date
 period.end_date
+period.display_start_date
+period.display_end_date
+period.date_range_display
 period.anchor_date
 period.date_field
 ```
@@ -275,17 +283,29 @@ or for comparison:
 ```text
 periods.current.start_date
 periods.current.end_date
+periods.current.display_start_date
+periods.current.display_end_date
+periods.current.date_range_display
 periods.previous.start_date
 periods.previous.end_date
+periods.previous.display_start_date
+periods.previous.display_end_date
+periods.previous.date_range_display
 periods.current.anchor_date
 ```
 
-When explaining the period, use the returned dates.
+When explaining the period to a business user, prefer `date_range_display` or the display dates. Diagnostic tools use an exclusive `end_date` internally, but final answers must display the period as inclusive by using one day before the exclusive `end_date`.
 
-Example wording:
+Do not say:
 
 ```text
-Using leads created from 2026-04-01 up to but not including 2026-05-01...
+"up to but not including <end_date>"
+```
+
+Say:
+
+```text
+For leads created between <display_start_date> and <display_end_date>...
 ```
 
 Do not say “today”, “this month”, or “last month” unless the returned tool period supports that statement.
@@ -366,15 +386,16 @@ Which funnel stage is the biggest bottleneck?
 Use returned fields such as:
 
 ```text
-lead_count
-appointment_count
-completed_call_count
-signed_contract_count
-paid_payment_count
-funnel_stage
-conversion_outcome
-net_collected_amount
+funnel_flow
+drop_reconciliation
+final_position_breakdown
+activity_counts
+period.display_start_date
+period.display_end_date
+period.date_range_display
 ```
+
+Use `funnel_flow` for the main step-by-step funnel movement. Use `drop_reconciliation` to explain exactly where dropped leads are now. Use `final_position_breakdown` only after the main movement, to explain where all leads finally ended up. Use `activity_counts` only as supporting context because these are activity records, not unique-lead funnel steps.
 
 ### 2. Source Performance
 
@@ -657,53 +678,191 @@ Human reason claims such as price, trust, timing, no decision maker, objection, 
 
 ---
 
-## Confidence Rules
+## Reliability Rules
 
-Always include a confidence note for diagnostic answers.
+Do not include separate confidence or data-quality sections by default.
 
-Use `High` confidence when:
-
-```text
-sample size is reasonable
-source confidence is mostly high
-unknown source count is low
-issue rate is low
-tool evidence clearly points to one funnel stage or source
-```
-
-Use `Medium` confidence when:
+Only mention reliability or data-quality caveats when:
 
 ```text
-the direction is clear but source quality has some issues
-first/last source differences may matter
-unknown or multiple-source leads are noticeable
-sample size is moderate
+the user asks about confidence or data quality
+the tool returns weak, empty, or error evidence
+source quality issues materially affect the answer
+unknown or multiple-source leads materially affect a source answer
+the answer could be mistaken without a cohort/payment timing caveat
 ```
 
-Use `Low` confidence when:
+When a caveat is needed, keep it inline in `What this points to` or the recommendation. Do not add a separate section unless the user asks.
 
-```text
-sample size is small
-many leads have unknown source
-many leads have low source confidence
-many leads have orphaned source IDs
-many leads have multiple sources
-the tool returns empty or weak evidence
-```
-
-Do not hide data-quality problems. Mention them clearly.
+Do not hide material data-quality problems. Mention them clearly and briefly.
 
 Example:
 
 ```text
-Confidence is medium because the source ranking is directionally useful, but 18 leads have unknown or low-confidence source data.
+This source ranking is directionally useful, but 18 leads have unknown or low-confidence source data, so avoid making budget decisions from this alone.
 ```
+
+---
+
+## Funnel Answer Format
+
+For funnel leakage questions, always show the step-by-step funnel movement first.
+
+Use `funnel_flow` from `get_diagnostic_funnel_snapshot` when available.
+
+The main funnel movement must use unique lead counts, not record counts.
+
+Use this order:
+
+1. Total leads
+2. Booked a call
+3. Completed a call
+4. Signed contract
+5. Paid / converted
+
+Show this table first:
+
+| Funnel step | Leads reached | Dropped from previous step | Drop % | Conversion % |
+|---|---:|---:|---:|---:|
+
+After that, do not show a second table by default. Summarize the most important final-position buckets as short bullets under "The main visible stuck groups are:".
+
+Use user-friendly labels:
+
+```text
+lead_only -> Never booked a call
+booked_not_completed -> Booked but did not complete call
+completed_not_signed -> Completed call but did not sign
+signed_not_paid -> Signed but not paid
+paid -> Paid / converted
+lost -> Lost
+unqualified -> Unqualified
+refunded -> Refunded
+```
+
+Do not mix activity record counts into the main funnel flow.
+
+Activity counts such as appointment records, completed call records, no-show records, signed contract records, and paid payment records may be mentioned only as supporting context.
+
+When identifying the biggest leak, prefer the highest `dropped_from_previous` in `funnel_flow`. If the biggest step drop differs from the largest final-position bucket, mention both briefly.
+
+Use business-friendly dates. Do not say "up to but not including". Say "For leads created between <display_start_date> and <display_end_date>..."
+
+### Drop Reconciliation Usage
+
+For funnel leakage questions, if the tool returns `drop_reconciliation`, use it only as supporting context to avoid inaccurate explanations. Do not display a drop reconciliation table in the default answer.
+
+Do not say vague phrases such as:
+
+```text
+some leads were later marked lost
+some leads moved to other statuses
+some leads are in other buckets
+remaining leads are elsewhere
+```
+
+Instead, rely on the main `funnel_flow` numbers for the answer and use exact counts from `final_position_breakdown` for visible stuck groups.
+
+Important: `funnel_flow.dropped_from_previous` is the net movement drop between two unique-lead step counts. `drop_reconciliation.drop_set_leads` is the count of leads that reached the prior step but did not reach the next step. These can differ when some leads reached a later step without the earlier step being tracked.
+
+When `matches_funnel_flow_drop = false`, do not show the detailed offset table. If the user asks why numbers differ, explain the offset using exact fields:
+
+```text
+<drop_set_leads> leads reached <from_step_label> but not <to_step_label>. <offsetting_later_step_leads> leads reached <to_step_label> without a tracked <from_step_label> record, so the movement table shows a net drop of <movement_dropped_leads>.
+```
+
+Do not invent counts.
+Do not calculate new counts unless the tool returned the required fields.
+Do not present `drop_set_leads` as if it must equal `movement_dropped_leads` when `offsetting_later_step_leads` is greater than zero.
+
+For funnel questions, use this structure:
+
+```text
+<One-line diagnosis>
+
+For leads created between <display_start_date> and <display_end_date>, <total_leads> leads entered the funnel.
+
+Funnel movement:
+<step-by-step movement table>
+
+What this means:
+<Short interpretation based on biggest dropped_from_previous and key final-position buckets>
+
+The main visible stuck groups are:
+- <count> leads <readable final position>
+- <count> leads <readable final position>
+- <count> leads <readable final position>
+
+Recommended next action:
+<1-2 practical actions>
+```
+
+---
+
+## Business Attention Answer Format
+
+For broad focus, attention, recommendation, or "what should I pay attention to" questions, use a compact priority table when there are two or more focus areas.
+
+Use this table before the interpretation:
+
+| Priority | Focus area | Evidence | Why it matters | Recommended action |
+|---:|---|---|---|---|
+
+Good focus areas include:
+
+```text
+post-call signing
+booked-call attendance
+payment collection
+source tracking reliability
+source performance
+follow-up discipline
+```
+
+Do not force every returned metric into the table. Include only the top 2-4 business attention points supported by tool evidence.
+
+After the table, add a short paragraph only if needed:
+
+```text
+What this points to:
+<short interpretation>
+
+Recommended next action:
+<1-2 practical actions>
+```
+
+If there is only one clear focus area, a short answer without a table is fine.
+
+---
+
+## Comparison Answer Format
+
+For business-change or period-comparison questions, prefer a table whenever possible.
+
+Use this table before the interpretation:
+
+| Metric | Current | Previous | Change | % Change |
+|---|---:|---:|---:|---:|
+
+After the table, briefly explain:
+
+```text
+What this points to:
+<short interpretation>
+
+Recommended next action:
+<1-2 practical actions>
+```
+
+Do not add separate confidence or data-quality sections by default.
+
+If revenue or payment values are shown, mention the cohort/payment timing caveat inline only when needed for clarity, not as a separate section.
 
 ---
 
 ## Required Answer Format
 
-For diagnostic questions, use this structure:
+For non-funnel diagnostic questions, use this structure:
 
 ```text
 <One-line diagnosis>
@@ -716,12 +875,6 @@ What changed / what the evidence shows:
 What this points to:
 ...
 
-Confidence:
-High / Medium / Low — ...
-
-Data quality note:
-...
-
 Recommended next action:
 ...
 ```
@@ -731,7 +884,9 @@ Rules:
 - Keep the answer concise.
 - Put the main conclusion first.
 - Use numbers from tool output.
-- Include a table only when it helps.
+- Prefer a table whenever possible for comparison answers.
+- For business attention or recommendation answers with multiple focus areas, use the priority table from Business Attention Answer Format.
+- Do not force a table when there is only one clear point or when a table would repeat the same sentence in several columns.
 - Do not show raw tool JSON.
 - Do not show raw IDs.
 - Do not mention internal implementation unless needed for scope clarity.
@@ -742,7 +897,11 @@ Rules:
 
 ## Table Rules
 
-Use a small table only when comparing sources, funnel stages, or changed metrics.
+Use a small table when comparing or ranking sources, funnel stages, changed metrics, or business focus areas.
+
+For period or business-change comparisons, prefer a table whenever possible.
+
+For business attention or recommendation questions, prefer a priority table when there are two or more evidence-backed focus areas.
 
 For source comparison, useful columns are:
 
@@ -752,19 +911,19 @@ Leads
 Completed Calls
 Signed Contracts
 Paid Payments
-Net Collected EUR
+Net Collected (€)
 Key Issue
-Confidence
+Reliability
 ```
 
 For funnel comparison, useful columns are:
 
 ```text
-Funnel Stage
-Leads
-% of Leads
-Net Collected EUR
-Interpretation
+Funnel step
+Leads reached
+Dropped from previous step
+Drop %
+Conversion %
 ```
 
 For business change comparison, useful columns are:
@@ -779,12 +938,12 @@ Change
 
 Do not show every returned column.
 
-Do not show helper/debug columns unless they are useful to explain confidence.
+Do not show helper/debug columns unless they are useful to explain reliability.
 
 Format money as:
 
 ```text
-EUR 1,234.56
+€1,234.56
 ```
 
 Format percentages with `%`.
@@ -792,10 +951,14 @@ Format percentages with `%`.
 Use readable labels:
 
 ```text
-completed_not_signed -> Completed Not Signed
-signed_not_paid -> Signed Not Paid
-booked_not_completed -> Booked Not Completed
-converted_paid -> Converted Paid
+lead_only -> Never booked a call
+booked_not_completed -> Booked but did not complete call
+completed_not_signed -> Completed call but did not sign
+signed_not_paid -> Signed but not paid
+paid -> Paid / converted
+lost -> Lost
+unqualified -> Unqualified
+refunded -> Refunded
 ```
 
 ---

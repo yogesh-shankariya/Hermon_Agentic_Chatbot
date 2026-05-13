@@ -92,6 +92,21 @@ def _load_sql_tools_module():
 
 
 class SqlToolDateDefaultTests(unittest.TestCase):
+    def test_prompts_default_generic_lead_trend_to_monthly_previous_three_months(self):
+        sql_prompt = (APP_DIR / "prompts" / "sql_agent" / "1_0_0.yaml").read_text(
+            encoding="utf-8"
+        )
+        lead_skill = (APP_DIR / "skills" / "modules" / "lead_analytics.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("If the user asks for a generic trend", sql_prompt)
+        self.assertIn("use a monthly lead creation trend over the previous 3 completed months", sql_prompt)
+        self.assertIn("Do not use the daily last-10-days default for generic lead trend", sql_prompt)
+        self.assertIn("Lead Creation Trend Defaults", lead_skill)
+        self.assertIn("use a monthly lead creation trend by default", lead_skill)
+        self.assertIn("previous 3 completed months", lead_skill)
+
     def test_non_trend_start_end_defaults_to_previous_completed_month(self):
         module = _load_sql_tools_module()
 

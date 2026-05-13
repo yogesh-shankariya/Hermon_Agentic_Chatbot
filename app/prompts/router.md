@@ -19,13 +19,15 @@ You will receive:
 ## Routes
 
 `sql_analytics`  
-Use for normal analytics across many records: counts, totals, trends, breakdowns, rankings, lists, lead analytics, appointment analytics, revenue/payment analytics, contract analytics, acquisition analytics, UTM/form/opt-in analytics, funnel analytics, and source performance.
+Use for direct metric/report questions across many records: counts, totals, single-metric trends, breakdowns, rankings, lists, lead analytics, appointment analytics, revenue/payment analytics, contract analytics, acquisition analytics, UTM/form/opt-in analytics, funnel analytics, and source performance.
 
 Examples:
 - How many leads came last month?
 - Show revenue by program.
 - Which source generated the most booked calls?
 - What is the appointment no-show rate?
+- Compare lead count in April vs March.
+- What is the lead trend?
 
 `lead_360`  
 Use only when the user asks about one specific lead, customer, prospect, or person using a name, email, phone, lead ID, or clear single-lead context.
@@ -37,13 +39,17 @@ Examples:
 - Did john@example.com buy?
 
 `diagnostic_analytics`  
-Use for broad investigation, root-cause analysis, trust checks, anomaly explanation, misleading metrics, or business recommendations.
+Use for broad business health/performance questions, investigation, root-cause analysis, trust checks, anomaly explanation, misleading metrics, period-over-period business diagnosis, or business recommendations.
 
 Examples:
 - What is going wrong?
 - Why did revenue drop?
 - Can we trust this attribution number?
 - Which source should we scale?
+- How are we doing in April compared to March?
+- How did we do in April vs March?
+- Are we doing better or worse this month?
+- What should I pay attention to for my business?
 
 `unsupported`  
 Use for unsafe or out-of-scope requests, including write/update/delete/admin actions, secrets, credentials, API keys, webhook payloads, raw private payloads, or unsupported integrations.
@@ -76,11 +82,13 @@ Do not invent context that is not present in the current question or previous Q&
 
 ## Decision Rules
 
-Prefer `sql_analytics` for metrics, reports, tables, trends, counts, lists, and breakdowns.
+Prefer `sql_analytics` for direct metric reports, tables, trends, counts, lists, and breakdowns.
 
 Prefer `lead_360` only when one specific lead/person is clearly identified.
 
-Prefer `diagnostic_analytics` when the user asks why, what changed, what is wrong, whether data is trustworthy, or what action to take.
+Prefer `diagnostic_analytics` when the user asks why, what changed, what is wrong, whether data is trustworthy, what action to take, or how the business is doing overall across a period comparison.
+
+Route broad questions like "how are we doing", "how did we do", "are we doing better or worse", "overall performance", or "April compared to March" to `diagnostic_analytics` when the user is asking for business performance rather than one explicit metric.
 
 Use `unsupported` for unsafe, admin, secret, or unsupported requests.
 
@@ -94,7 +102,13 @@ Route to `unsupported` when the question requires ad spend, ROAS, cost per lead,
 - "Can we trust this cost per lead number?" → `unsupported`
 - "Can we trust the revenue-by-source answer?" → `diagnostic_analytics`
 - "Show revenue trend by month." → `sql_analytics`
+- "What is the lead trend?" → `sql_analytics`
+- "Compare lead count in April vs March." → `sql_analytics`
 - "Why did revenue drop last month?" → `diagnostic_analytics`
+- "How are we doing in April compared to March?" → `diagnostic_analytics`
+- "How are we doing in April compared the March?" → `diagnostic_analytics`
+- "Are we doing better or worse in April than March?" → `diagnostic_analytics`
+- "What should I pay attention to for my business?" → `diagnostic_analytics`
 - "Which leads are overdue for follow-up?" → `sql_analytics`
 - "Why are leads not converting?" → `diagnostic_analytics`
 

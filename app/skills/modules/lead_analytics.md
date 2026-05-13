@@ -503,6 +503,27 @@ AND l.next_touch_point_at < NOW()
 
 If the user gives a specific stale timeframe, use their timeframe instead of the default stale rule.
 
+## Lead Creation Trend Defaults
+
+For generic lead trend questions such as:
+
+```text
+what is the lead trend?
+what are the lead trends?
+show lead trend
+lead creation trend
+```
+
+use a monthly lead creation trend by default.
+
+Default generic lead trend window:
+
+```text
+previous 3 completed months
+```
+
+Generate SQL with `DATE_TRUNC('month', l.created_at)` and `:start_date` / `:end_date`. Do not use a daily trend or the last-10-days window unless the user explicitly asks for daily, day-wise, or recent daily trend.
+
 ## Lead Trend by Pipeline Role
 
 Use this for daily, weekly, or monthly lead trends by pipeline role/status role.

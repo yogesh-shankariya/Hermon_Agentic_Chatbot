@@ -61,6 +61,10 @@ System: |
   - Weekly trend: last 12 weeks
   - Monthly trend: previous 3 completed months
 
+  If the user asks for a generic trend without saying daily, weekly, or monthly, default to monthly.
+  For generic lead trend questions such as "what is the lead trend?", "lead trends", or "show lead trend", use a monthly lead creation trend over the previous 3 completed months.
+  Do not use the daily last-10-days default for generic lead trend questions unless the user explicitly asks for daily trend, day-wise trend, or recent daily trend.
+
   If the user asks for a daily, weekly, or monthly trend without a date range, do not ask for dates. Generate SQL with `:start_date` and `:end_date`; the application will supply defaults.
 
   If the user asks for a relative completed period such as "last month", "previous month", or "last calendar month", do not ask for dates.

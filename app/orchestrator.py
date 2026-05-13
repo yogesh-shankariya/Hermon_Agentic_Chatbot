@@ -138,6 +138,28 @@ def _invoke_component(component: Any, payload: Any, *, config: dict[str, Any] | 
         return component.invoke(payload)
 
 
+def _emit_progress(
+    progress_callback: Callable[[dict[str, Any]], None] | None,
+    *,
+    stage: str,
+    message: str,
+    route: str | None = None,
+) -> None:
+    if progress_callback is None:
+        return
+
+    try:
+        progress_callback(
+            {
+                "stage": stage,
+                "message": message,
+                "route": route,
+            }
+        )
+    except Exception:
+        return
+
+
 def _router_model_kwargs() -> dict[str, Any]:
     from app.config import get_sql_agent_settings
 
@@ -324,12 +346,18 @@ def answer_user_question(
     lead_360_agent: Any | None = None,
     diagnostic_agent: Any | None = None,
     config: dict[str, Any] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
     sql_agent_factory: Callable[[], Any] = create_default_sql_agent,
     lead_360_agent_factory: Callable[[], Any] = create_default_lead_360_agent,
     diagnostic_agent_factory: Callable[[], Any] = create_default_diagnostic_agent,
 ) -> dict[str, Any]:
     """Route first, then dispatch to exactly one allowed downstream flow."""
 
+    _emit_progress(
+        progress_callback,
+        stage="routing",
+        message="Checking whether this is SQL analytics, Lead 360, or diagnostic analytics...",
+    )
     router_response, latest_history = route_question(
         current_question,
         chat_history,
@@ -337,8 +365,22 @@ def answer_user_question(
         config=config,
     )
     selected_history = selected_history_for_route(router_response, latest_history)
+    route_value = router_response.route.value
+
+    _emit_progress(
+        progress_callback,
+        stage="route_selected",
+        message=f"Route selected: {route_value.replace('_', ' ')}.",
+        route=route_value,
+    )
 
     if router_response.route == RouterRoute.UNSUPPORTED:
+        _emit_progress(
+            progress_callback,
+            stage="unsupported",
+            message="Preparing a safe response for an unsupported request...",
+            route=route_value,
+        )
         return _static_turn(
             current_question=current_question,
             router_response=router_response,
@@ -353,12 +395,36 @@ def answer_user_question(
     )
 
     if router_response.route == RouterRoute.SQL_ANALYTICS:
+        _emit_progress(
+            progress_callback,
+            stage="flow_start",
+            message="Loading the SQL analytics flow...",
+            route=route_value,
+        )
         effective_agent = sql_agent or sql_agent_factory()
     elif router_response.route == RouterRoute.LEAD_360:
+        _emit_progress(
+            progress_callback,
+            stage="flow_start",
+            message="Loading the Lead 360 flow...",
+            route=route_value,
+        )
         effective_agent = lead_360_agent or lead_360_agent_factory()
     elif router_response.route == RouterRoute.DIAGNOSTIC_ANALYTICS:
+        _emit_progress(
+            progress_callback,
+            stage="flow_start",
+            message="Loading the diagnostic analytics flow...",
+            route=route_value,
+        )
         effective_agent = diagnostic_agent or diagnostic_agent_factory()
     else:
+        _emit_progress(
+            progress_callback,
+            stage="unsupported",
+            message="Preparing a safe response for an unsupported request...",
+            route=route_value,
+        )
         return _static_turn(
             current_question=current_question,
             router_response=router_response,
@@ -367,10 +433,22 @@ def answer_user_question(
             answer=UNSUPPORTED_MESSAGE,
         )
 
+    _emit_progress(
+        progress_callback,
+        stage="flow_running",
+        message="Running the selected flow with the approved tools...",
+        route=route_value,
+    )
     answer, trace_messages, all_messages = _invoke_downstream_agent(
         effective_agent,
         messages,
         config=config,
+    )
+    _emit_progress(
+        progress_callback,
+        stage="answer_ready",
+        message="Preparing the final answer...",
+        route=route_value,
     )
     return {
         "question": current_question,
