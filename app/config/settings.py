@@ -42,6 +42,19 @@ class SilverTruthSettings:
 
 
 @dataclass(frozen=True)
+class ContextExtractionSettings:
+    """Runtime settings for diagnostic context extraction."""
+
+    model: str
+    reasoning: dict[str, Any] | None
+    service_tier: str | None
+    prompt_cache_key: str | None
+    prompt_cache_retention: str | None
+    max_retries: int
+    prompt_version: str
+
+
+@dataclass(frozen=True)
 class DatabaseSettings:
     """Runtime settings for read-only database access."""
 
@@ -128,6 +141,52 @@ def get_silver_truth_settings() -> SilverTruthSettings:
 
     return SilverTruthSettings(
         service_tier=str(service_tier) if service_tier else None,
+    )
+
+
+def get_context_extraction_settings() -> ContextExtractionSettings:
+    """Return settings for diagnostic context extraction."""
+
+    config = load_app_config()
+    llm_config = config.get("llm", {})
+    extraction_config = llm_config.get("context_extraction", {})
+    sql_agent_config = llm_config.get("sql_agent", {})
+    prompts_config = config.get("prompts", {})
+    prompt_config = prompts_config.get("extract_context", {})
+
+    model = (
+        os.getenv("OPENAI_MODEL")
+        or extraction_config.get("Model")
+        or sql_agent_config.get("Model")
+        or "gpt-5.4"
+    )
+    reasoning = extraction_config.get("reasoning")
+    if reasoning is not None and not isinstance(reasoning, dict):
+        raise RuntimeError("llm.context_extraction.reasoning must be a YAML object when provided.")
+
+    max_retries_default = int(extraction_config.get("max_retries", llm_config.get("max_retries", 2)))
+    max_retries = _int_env("HERMON_CONTEXT_EXTRACTION_MAX_RETRIES", max_retries_default)
+
+    return ContextExtractionSettings(
+        model=str(model),
+        reasoning=reasoning,
+        service_tier=(
+            str(extraction_config["service_tier"])
+            if extraction_config.get("service_tier")
+            else None
+        ),
+        prompt_cache_key=(
+            str(extraction_config["prompt_cache_key"])
+            if extraction_config.get("prompt_cache_key")
+            else None
+        ),
+        prompt_cache_retention=(
+            str(extraction_config["prompt_cache_retention"])
+            if extraction_config.get("prompt_cache_retention")
+            else None
+        ),
+        max_retries=max_retries,
+        prompt_version=str(prompt_config.get("version", "1_0_0")),
     )
 
 

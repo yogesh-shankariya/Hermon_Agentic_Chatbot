@@ -186,6 +186,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         self.assertNotIn("get_diagnostic_source_snapshot", tool_names)
         self.assertNotIn("get_diagnostic_source_quality_snapshot", tool_names)
         self.assertNotIn("get_diagnostic_business_change_snapshot", tool_names)
+        self.assertNotIn("get_diagnostic_text_reason_snapshot", tool_names)
 
     def test_lead_360_agent_has_only_lead_360_tool_and_safe_prompt_rules(self):
         module = self._load_lead_360_builder_with_fakes()
@@ -211,6 +212,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             "get_diagnostic_source_snapshot",
             "get_diagnostic_source_quality_snapshot",
             "get_diagnostic_business_change_snapshot",
+            "get_diagnostic_text_reason_snapshot",
         ]
         self.assertEqual([tool.name for tool in module.DIAGNOSTIC_TOOLS], expected_tool_names)
         self.assertEqual([tool.name for tool in agent.tools], expected_tool_names)
@@ -265,6 +267,11 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             ("Compare lead count in April vs March.", "sql_analytics"),
             ("What is the lead trend?", "sql_analytics"),
             ("What should I pay attention to for my business?", "diagnostic_analytics"),
+            ("Why are completed calls not converting to signed leads?", "diagnostic_analytics"),
+            ("After calls, why are people not paying?", "diagnostic_analytics"),
+            ("Where are we losing people in the funnel and why?", "diagnostic_analytics"),
+            ("Where are we losing people on funnel?", "diagnostic_analytics"),
+            ("Why did Vedran not pay?", "lead_360"),
             ("Delete these leads.", "unsupported"),
         ]
 
@@ -384,6 +391,9 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             "What should sales focus on this week?",
             "What should marketing investigate this week?",
             "Which source has signed contracts but low collected cash?",
+            "Why are completed calls not converting to signed leads?",
+            "After calls, why are people not paying?",
+            "Where are we losing people in the funnel and why?",
         ]
 
         for question in questions:
@@ -625,6 +635,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             SimpleNamespace(name="get_diagnostic_source_snapshot"),
             SimpleNamespace(name="get_diagnostic_source_quality_snapshot"),
             SimpleNamespace(name="get_diagnostic_business_change_snapshot"),
+            SimpleNamespace(name="get_diagnostic_text_reason_snapshot"),
         ]
         fake_tools = types.ModuleType("app.tools")
         fake_tools.__path__ = []

@@ -36,6 +36,8 @@ Examples:
 - What happened with Vedran?
 - Give me the 360 view of John Smith.
 - Why did this lead not pay?
+- Why did Vedran not pay?
+- Why did this lead not sign?
 - Did john@example.com buy?
 
 `diagnostic_analytics`  
@@ -50,6 +52,13 @@ Examples:
 - How did we do in April vs March?
 - Are we doing better or worse this month?
 - What should I pay attention to for my business?
+- Why are completed calls not converting to signed leads?
+- After calls, why are people not paying?
+- What are the main reasons attended leads do not buy?
+- Why do completed-call leads get stuck before payment?
+- What are the top post-call blockers?
+- Where are we losing people in the funnel and why?
+- Where are we loosing people on funnel?
 
 `unsupported`  
 Use for unsafe or out-of-scope requests, including write/update/delete/admin actions, secrets, credentials, API keys, webhook payloads, raw private payloads, or unsupported integrations.
@@ -111,6 +120,11 @@ Route to `unsupported` when the question requires ad spend, ROAS, cost per lead,
 - "What should I pay attention to for my business?" → `diagnostic_analytics`
 - "Which leads are overdue for follow-up?" → `sql_analytics`
 - "Why are leads not converting?" → `diagnostic_analytics`
+- "Why are completed calls not converting to signed leads?" → `diagnostic_analytics`
+- "After calls, why are people not paying?" → `diagnostic_analytics`
+- "Where are we losing people in the funnel and why?" → `diagnostic_analytics`
+- "Where are we losing people on funnel?" → `diagnostic_analytics`
+- "Why did Vedran not pay?" → `lead_360`
 
 ## Output Format
 

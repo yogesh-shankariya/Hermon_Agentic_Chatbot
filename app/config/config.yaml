@@ -1,6 +1,13 @@
 llm:
   max_retries: 2
 
+  context_extraction:
+    Model: "gpt-5.4"
+    service_tier: "flex"
+    prompt_cache_key: "hermon_context_extraction_v1"
+    prompt_cache_retention: "24h"
+    max_retries: 2
+
   # Generic SQL agent config. By default, enabled skills come from
   # app/skills/registry.yaml; set enabled_skills to a YAML list to restrict
   # production to a subset.
@@ -31,10 +38,12 @@ prompts:
   # Prompt files are versioned as app/prompts/<agent>/<version>.yaml.
   sql_agent:
     version: "1_0_0"
+  extract_context:
+    version: "1_0_0"
 
 testing:
   silver_truth:
     # Flex is lower cost but slower and can be unavailable; keep production on
     # the default service tier by leaving llm.sql_agent.service_tier unset.
     # Set to "default" to use normal processing instead of flex.
-    service_tier: "default"
+    service_tier: "flex"

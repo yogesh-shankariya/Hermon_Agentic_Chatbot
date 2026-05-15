@@ -59,6 +59,7 @@ FUNNEL_STEP_LABELS = {
 }
 
 FUNNEL_STAGE_LABELS = {
+    "never_booked": "Never booked a call",
     "lead_only": "Never booked a call",
     "booked_not_completed": "Booked but did not complete call",
     "completed_not_signed": "Completed call but did not sign",
@@ -70,6 +71,7 @@ FUNNEL_STAGE_LABELS = {
 }
 
 FUNNEL_STAGE_HINTS = {
+    "never_booked": "Leads did not reach the appointment stage",
     "lead_only": "Leads did not reach the call stage",
     "booked_not_completed": "Attendance or confirmation process needs review",
     "completed_not_signed": "Post-call conversion needs review",
@@ -101,6 +103,189 @@ DROP_POINT_METADATA = {
         "from_step_label": "Signed contract",
         "to_step_label": "Paid / converted",
     },
+}
+
+REASON_CATEGORY_LABELS = {
+    "price_or_budget": "Price or budget concern",
+    "timing_issue": "Not ready yet / needs more time",
+    "not_decision_maker": "Not the decision-maker",
+    "needs_partner_approval": "Waiting for partner or decision-maker approval",
+    "trust_issue": "Needs more trust or proof",
+    "low_intent": "Low buying intent",
+    "unclear_need": "Need or goal is unclear",
+    "poor_fit": "Not a strong fit",
+    "competition": "Comparing with another option",
+    "too_busy": "Too busy right now",
+    "needs_more_information": "Needs clearer information",
+    "payment_friction": "Payment issue or payment not completed",
+    "contract_friction": "Contract signing issue",
+    "no_show": "Missed or cancelled call",
+    "ghosted": "Stopped responding",
+    "follow_up_pending": "Follow-up still pending",
+    "operational_delay": "Internal or operational delay",
+    "technical_issue": "Link or technical issue",
+    "language_or_communication_issue": "Communication issue",
+    "location_or_timezone_issue": "Location or timezone issue",
+    "already_solved": "Problem already solved",
+    "unknown": "Reason not clear",
+}
+
+REASON_SUBCATEGORY_LABELS = {
+    "price_too_high": "Price felt too high",
+    "budget_not_available": "Budget not available right now",
+    "wants_discount": "Asked for discount",
+    "needs_payment_plan": "Needs a payment plan",
+    "not_ready_now": "Not ready right now",
+    "needs_more_time": "Needs more time before deciding",
+    "waiting_for_partner": "Waiting for partner approval",
+    "waiting_for_team": "Waiting for team input",
+    "waiting_for_finance": "Waiting for finance approval",
+    "does_not_trust_offer": "Does not fully trust the offer yet",
+    "needs_proof_or_case_study": "Needs proof or case studies",
+    "unclear_value": "Value is not clear enough",
+    "comparing_competitor": "Comparing with another option",
+    "not_enough_need": "Need is not strong enough",
+    "wrong_customer_fit": "Not the right customer fit",
+    "not_qualified": "Not qualified",
+    "missed_call": "Missed the call",
+    "cancelled_call": "Cancelled the call",
+    "stopped_responding": "Stopped responding",
+    "needs_more_information": "Needs more information",
+    "contract_not_signed": "Contract not signed",
+    "payment_not_completed": "Payment not completed",
+    "payment_failed": "Payment failed",
+    "refund_requested": "Refund requested",
+    "internal_team_delay": "Internal team delay",
+    "system_or_link_issue": "System or link issue",
+    "language_barrier": "Language barrier",
+    "timezone_issue": "Timezone issue",
+    "issue_already_solved": "Issue already solved",
+    "other": "Other reason",
+    "unknown": "Reason not clear",
+}
+
+BUYING_INTENT_LABELS = {
+    "very_high": "Very high intent",
+    "high": "High intent",
+    "medium": "Medium intent",
+    "low": "Low intent",
+    "very_low": "Very low intent",
+    "unknown": "Intent not clear",
+}
+
+FINAL_FUNNEL_STAGE_CASE_SQL = """
+CASE
+  WHEN dls.paid_payment_count > 0 THEN 'paid_converted'
+  WHEN dls.signed_contract_count > 0 THEN 'signed_not_paid'
+  WHEN dls.completed_call_count > 0 THEN 'completed_not_signed'
+  WHEN dls.appointment_count > 0 THEN 'booked_not_completed'
+  ELSE 'never_booked'
+END
+""".strip()
+
+TEXT_REASON_COHORTS = {
+    "never_booked": {
+        "label": "Never booked a call",
+        "definition": "final_funnel_stage = never_booked",
+        "condition": f"({FINAL_FUNNEL_STAGE_CASE_SQL}) = 'never_booked'",
+    },
+    "booked_not_completed": {
+        "label": "Booked but did not complete call",
+        "definition": "final_funnel_stage = booked_not_completed",
+        "condition": f"({FINAL_FUNNEL_STAGE_CASE_SQL}) = 'booked_not_completed'",
+    },
+    "completed_not_signed": {
+        "label": "Completed call but did not sign",
+        "definition": "final_funnel_stage = completed_not_signed",
+        "condition": f"({FINAL_FUNNEL_STAGE_CASE_SQL}) = 'completed_not_signed'",
+    },
+    "signed_not_paid": {
+        "label": "Signed but not paid",
+        "definition": "final_funnel_stage = signed_not_paid",
+        "condition": f"({FINAL_FUNNEL_STAGE_CASE_SQL}) = 'signed_not_paid'",
+    },
+    "completed_not_paid": {
+        "label": "Completed call but not paid",
+        "definition": "completed_call_count > 0 AND paid_payment_count = 0",
+        "condition": "dls.completed_call_count > 0 AND dls.paid_payment_count = 0",
+    },
+}
+
+TEXT_REASON_COHORT_ALIASES = {
+    "lead_not_booked": "never_booked",
+}
+
+FUNNEL_STUCK_GROUPS = {
+    "total_leads": {
+        "stage_order": 6,
+        "stage_label": "Total",
+        "what_this_means": "Must equal the sum of all rows above",
+        "cohort_name": None,
+    },
+    "never_booked": {
+        "stage_order": 1,
+        "stage_label": "Never booked a call",
+        "what_this_means": "Leads did not reach the appointment stage",
+        "cohort_name": "never_booked",
+    },
+    "booked_not_completed": {
+        "stage_order": 2,
+        "stage_label": "Booked but did not complete call",
+        "what_this_means": "Leads booked a call but did not attend/complete it",
+        "cohort_name": "booked_not_completed",
+    },
+    "completed_not_signed": {
+        "stage_order": 3,
+        "stage_label": "Completed call but did not sign",
+        "what_this_means": "Leads attended the call but did not move to signed contract",
+        "cohort_name": "completed_not_signed",
+    },
+    "signed_not_paid": {
+        "stage_order": 4,
+        "stage_label": "Signed but not paid",
+        "what_this_means": "Leads signed but payment was not completed",
+        "cohort_name": "signed_not_paid",
+    },
+    "paid_converted": {
+        "stage_order": 5,
+        "stage_label": "Paid / converted",
+        "what_this_means": "Leads completed the paid conversion path",
+        "cohort_name": None,
+    },
+}
+
+STUCK_TEXT_COHORTS = (
+    "never_booked",
+    "booked_not_completed",
+    "completed_not_signed",
+    "signed_not_paid",
+)
+
+TEXT_COHORT_SELECTION_PRIORITY = {
+    "completed_not_signed": 1,
+    "booked_not_completed": 2,
+    "signed_not_paid": 3,
+    "never_booked": 4,
+}
+
+TEXT_COHORT_REASONS = {
+    "never_booked": "Top-of-funnel booking leakage",
+    "booked_not_completed": "Booked-call attendance leakage",
+    "completed_not_signed": "Post-call signing leakage",
+    "signed_not_paid": "Payment-stage leakage",
+}
+
+SECONDARY_TEXT_COHORT_ORDER = (
+    "completed_not_signed",
+    "booked_not_completed",
+    "signed_not_paid",
+    "never_booked",
+)
+
+SPECIAL_COMBINATION_LABELS = {
+    "unknown_reason": "Reason not clear",
+    "no_text_insight_available": "No usable text insight available",
+    "other_lower_volume_combinations": "Other lower-volume combinations",
 }
 
 SNAPSHOT_DATE_BOUNDS_SQL = """
@@ -229,6 +414,48 @@ def _safe_limit(limit: int | None, *, default: int = 10, maximum: int = 50) -> i
     return max(1, min(parsed, maximum))
 
 
+def _safe_top_limit(limit: int | None, *, default: int = 10, maximum: int = 20) -> int:
+    return _safe_limit(limit, default=default, maximum=maximum)
+
+
+def _friendly_enum_label(value: str | None, labels: dict[str, str], default_key: str) -> str:
+    clean_value = str(value or "").strip()
+    if not clean_value:
+        clean_value = default_key
+    if clean_value in labels:
+        return labels[clean_value]
+    return clean_value.replace("_", " ").title()
+
+
+def _reason_category_label(value: str | None) -> str:
+    return _friendly_enum_label(value, REASON_CATEGORY_LABELS, "unknown")
+
+
+def _reason_subcategory_label(value: str | None) -> str:
+    return _friendly_enum_label(value, REASON_SUBCATEGORY_LABELS, "unknown")
+
+
+def _buying_intent_label(value: str | None) -> str:
+    return _friendly_enum_label(value, BUYING_INTENT_LABELS, "unknown")
+
+
+def _display_issue_combination(raw_combination: str | None) -> str:
+    clean_combination = str(raw_combination or "unknown_reason").strip()
+    if clean_combination in SPECIAL_COMBINATION_LABELS:
+        return SPECIAL_COMBINATION_LABELS[clean_combination]
+    return " + ".join(
+        _reason_category_label(part.strip())
+        for part in clean_combination.split(" + ")
+        if part.strip()
+    )
+
+
+def _percentage(numerator: int | float | None, denominator: int | float | None) -> float:
+    if not denominator:
+        return 0.0
+    return round(100.0 * float(numerator or 0) / float(denominator), 2)
+
+
 def _source_column(source_basis: str) -> str:
     basis = str(source_basis or "first").strip().lower()
     if basis not in SUPPORTED_SOURCE_BASIS:
@@ -298,6 +525,24 @@ def _funnel_stage_label(funnel_stage: Any) -> str:
 def _funnel_stage_hint(funnel_stage: Any) -> str:
     clean_stage = str(funnel_stage or "").strip()
     return FUNNEL_STAGE_HINTS.get(clean_stage, "Review this final funnel position")
+
+
+def _final_funnel_stage_key(
+    *,
+    appointment_count: int = 0,
+    completed_call_count: int = 0,
+    signed_contract_count: int = 0,
+    paid_payment_count: int = 0,
+) -> str:
+    if paid_payment_count > 0:
+        return "paid_converted"
+    if signed_contract_count > 0:
+        return "signed_not_paid"
+    if completed_call_count > 0:
+        return "completed_not_signed"
+    if appointment_count > 0:
+        return "booked_not_completed"
+    return "never_booked"
 
 
 def _funnel_sections(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -455,6 +700,416 @@ def _drop_reconciliation(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return reconciled
 
 
+def _text_cohort_metadata(cohort_name: str) -> dict[str, str]:
+    clean_name = str(cohort_name or "").strip().lower()
+    canonical_name = TEXT_REASON_COHORT_ALIASES.get(clean_name, clean_name)
+    if canonical_name not in TEXT_REASON_COHORTS:
+        allowed = ", ".join(sorted(TEXT_REASON_COHORTS))
+        raise ValueError(f"cohort_name must be one of: {allowed}.")
+    metadata = TEXT_REASON_COHORTS[canonical_name]
+    return {
+        "cohort_name": canonical_name,
+        "cohort_label": metadata["label"],
+        "cohort_definition": metadata["definition"],
+        "condition": metadata["condition"],
+    }
+
+
+def _stuck_group_funnel(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    total_leads = next(
+        (
+            _int_or_none(row.get("lead_count")) or 0
+            for row in rows
+            if str(row.get("stage_key") or "").strip() == "total_leads"
+        ),
+        0,
+    )
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        stage_key = str(row.get("stage_key") or row.get("cohort_name") or "").strip()
+        if stage_key == "lead_not_booked":
+            stage_key = "never_booked"
+        if stage_key not in FUNNEL_STUCK_GROUPS:
+            continue
+        metadata = FUNNEL_STUCK_GROUPS[stage_key]
+        lead_count = _int_or_none(row.get("lead_count")) or 0
+        result.append(
+            {
+                "stage_order": metadata["stage_order"],
+                "stage_key": stage_key,
+                "cohort_name": metadata["cohort_name"],
+                "stage_label": metadata["stage_label"],
+                "lead_count": lead_count,
+                "pct_of_total_leads": _number_or_none(row.get("pct_of_total_leads"))
+                if row.get("pct_of_total_leads") is not None
+                else _percentage(lead_count, total_leads),
+                "what_this_means": row.get("what_this_means")
+                or metadata["what_this_means"],
+                "is_text_reason_cohort": metadata["cohort_name"] is not None,
+            }
+        )
+    result.sort(key=lambda item: item["stage_order"])
+    return result
+
+
+def _stuck_group_validation(stuck_group_funnel: list[dict[str, Any]]) -> dict[str, Any]:
+    total_leads = next(
+        (
+            _int_or_none(row.get("lead_count")) or 0
+            for row in stuck_group_funnel
+            if row.get("stage_key") == "total_leads"
+        ),
+        0,
+    )
+    stage_total = sum(
+        _int_or_none(row.get("lead_count")) or 0
+        for row in stuck_group_funnel
+        if row.get("stage_key") in {
+            "never_booked",
+            "booked_not_completed",
+            "completed_not_signed",
+            "signed_not_paid",
+            "paid_converted",
+        }
+    )
+    stage_counts_reconcile = stage_total == total_leads
+    validation: dict[str, Any] = {
+        "total_leads": total_leads,
+        "stage_total": stage_total,
+        "stage_counts_reconcile": stage_counts_reconcile,
+    }
+    if not stage_counts_reconcile:
+        validation["safe_message"] = (
+            "Funnel stage counts could not be reconciled because final stage rows "
+            "do not sum to total leads."
+        )
+    return validation
+
+
+def _stuck_group_candidates(stuck_group_funnel: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in stuck_group_funnel
+        if item.get("cohort_name") in STUCK_TEXT_COHORTS
+        and (item.get("lead_count") or 0) > 0
+    ]
+
+
+def _largest_stuck_group(stuck_group_funnel: list[dict[str, Any]]) -> dict[str, Any] | None:
+    candidates = _stuck_group_candidates(stuck_group_funnel)
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda item: (
+            item.get("lead_count") or 0,
+            -TEXT_COHORT_SELECTION_PRIORITY.get(str(item.get("cohort_name")), 99),
+        ),
+    )
+
+
+def _recommended_text_cohorts(stuck_group_funnel: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    counts_by_name = {
+        str(row.get("cohort_name") or "").strip(): _int_or_none(row.get("lead_count")) or 0
+        for row in stuck_group_funnel
+        if row.get("cohort_name")
+    }
+    selected = _largest_stuck_group(stuck_group_funnel)
+    selected_name = str((selected or {}).get("cohort_name") or "").strip()
+    recommended: list[dict[str, Any]] = []
+
+    ordered_names: list[str] = []
+    if selected_name:
+        ordered_names.append(selected_name)
+    for cohort_name in SECONDARY_TEXT_COHORT_ORDER:
+        if cohort_name not in ordered_names:
+            ordered_names.append(cohort_name)
+
+    for cohort_name in ordered_names:
+        lead_count = counts_by_name.get(cohort_name, 0)
+        if lead_count <= 0:
+            continue
+        metadata = TEXT_REASON_COHORTS[cohort_name]
+        reason = (
+            "Largest mutually exclusive final-stage stuck group"
+            if cohort_name == selected_name
+            else TEXT_COHORT_REASONS[cohort_name]
+        )
+        recommended.append(
+            {
+                "cohort_name": cohort_name,
+                "cohort_label": metadata["label"],
+                "lead_count": lead_count,
+                "reason": reason,
+            }
+        )
+        if len(recommended) >= 2:
+            break
+    return recommended
+
+
+def _split_text_reason_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {
+        "coverage": [],
+        "combination": [],
+        "issue": [],
+        "subcategory": [],
+        "buying_intent": [],
+        "source_text_type": [],
+    }
+    for row in rows:
+        row_type = str(row.get("row_type") or "").strip()
+        if row_type in grouped:
+            grouped[row_type].append(row)
+    return grouped
+
+
+def _text_reason_coverage(row: dict[str, Any] | None) -> dict[str, int | float | bool]:
+    total_leads = _int_or_none((row or {}).get("total_cohort_leads")) or 0
+    leads_with_text = _int_or_none((row or {}).get("leads_with_text_insights")) or 0
+    known_reason_leads = _int_or_none((row or {}).get("known_reason_leads")) or 0
+    unknown_only_reason_leads = _int_or_none((row or {}).get("unknown_only_reason_leads")) or 0
+    leads_without_text = max(total_leads - leads_with_text, 0)
+    unknown_or_missing_reason_leads = max(total_leads - known_reason_leads, 0)
+    coverage_reconciles = (
+        total_leads == leads_with_text + leads_without_text
+        and leads_with_text == known_reason_leads + unknown_only_reason_leads
+    )
+    return {
+        "total_cohort_leads": total_leads,
+        "leads_with_text_insights": leads_with_text,
+        "leads_without_text_insights": leads_without_text,
+        "text_insight_coverage_rate": _percentage(leads_with_text, total_leads),
+        "known_reason_leads": known_reason_leads,
+        "unknown_only_reason_leads": unknown_only_reason_leads,
+        "known_reason_coverage_rate": _percentage(known_reason_leads, total_leads),
+        "unknown_or_missing_reason_leads": unknown_or_missing_reason_leads,
+        "unknown_or_missing_reason_rate": _percentage(unknown_or_missing_reason_leads, total_leads),
+        "coverage_reconciles": coverage_reconciles,
+    }
+
+
+def _limited_combination_distribution(
+    rows: list[dict[str, Any]],
+    *,
+    total_leads: int,
+    limit: int,
+) -> list[dict[str, Any]]:
+    combination_counts = [
+        {
+            "issue_combination_raw": str(row.get("item_key") or "").strip(),
+            "lead_count": _int_or_none(row.get("lead_count")) or 0,
+        }
+        for row in rows
+        if _int_or_none(row.get("lead_count"))
+    ]
+    special_raws = {"unknown_reason", "no_text_insight_available"}
+    special_rows = [
+        row for row in combination_counts if row["issue_combination_raw"] in special_raws
+    ]
+    known_rows = [
+        row for row in combination_counts if row["issue_combination_raw"] not in special_raws
+    ]
+    known_rows.sort(
+        key=lambda row: (
+            -row["lead_count"],
+            row["issue_combination_raw"],
+        )
+    )
+
+    special_rows.sort(
+        key=lambda row: (
+            -row["lead_count"],
+            row["issue_combination_raw"],
+        )
+    )
+
+    known_slots = max(limit - len(special_rows), 0)
+    if len(known_rows) > known_slots:
+        known_slots = max(limit - len(special_rows) - 1, 0)
+    selected_known = known_rows[:known_slots]
+    omitted_known = known_rows[known_slots:]
+
+    selected = list(selected_known) + list(special_rows)
+    selected.sort(
+        key=lambda row: (
+            -row["lead_count"],
+            row["issue_combination_raw"],
+        )
+    )
+    if omitted_known:
+        selected.append(
+            {
+                "issue_combination_raw": "other_lower_volume_combinations",
+                "lead_count": sum(row["lead_count"] for row in omitted_known),
+            }
+        )
+
+    return [
+        {
+            "issue_combination": _display_issue_combination(row["issue_combination_raw"]),
+            "issue_combination_raw": row["issue_combination_raw"],
+            "lead_count": row["lead_count"],
+            "share_of_cohort_leads": _percentage(row["lead_count"], total_leads),
+        }
+        for row in selected
+    ]
+
+
+def _combination_fragmentation_note(
+    rows: list[dict[str, Any]],
+    *,
+    total_leads: int,
+) -> str | None:
+    other_row = next(
+        (
+            row
+            for row in rows
+            if row.get("issue_combination_raw") == "other_lower_volume_combinations"
+        ),
+        None,
+    )
+    if not other_row:
+        return None
+    if _percentage(other_row.get("lead_count"), total_leads) <= 40:
+        return None
+    return (
+        "Reason combinations are fragmented, so the individual issue view is more "
+        "useful than the combination view."
+    )
+
+
+def _individual_issue_distribution(
+    rows: list[dict[str, Any]],
+    *,
+    total_leads: int,
+    limit: int,
+) -> list[dict[str, Any]]:
+    issue_rows = [
+        {
+            "reason_category_raw": str(row.get("item_key") or "").strip(),
+            "leads_with_issue": _int_or_none(row.get("lead_count")) or 0,
+        }
+        for row in rows
+        if str(row.get("item_key") or "").strip()
+    ]
+    issue_rows.sort(
+        key=lambda row: (
+            -row["leads_with_issue"],
+            row["reason_category_raw"],
+        )
+    )
+    total_known_mentions = sum(row["leads_with_issue"] for row in issue_rows)
+    return [
+        {
+            "reason_category": _reason_category_label(row["reason_category_raw"]),
+            "reason_category_raw": row["reason_category_raw"],
+            "leads_with_issue": row["leads_with_issue"],
+            "share_of_cohort_leads": _percentage(row["leads_with_issue"], total_leads),
+            "share_of_all_known_issue_mentions": _percentage(
+                row["leads_with_issue"],
+                total_known_mentions,
+            ),
+        }
+        for row in issue_rows[:limit]
+    ]
+
+
+def _subcategory_distribution(
+    rows: list[dict[str, Any]],
+    *,
+    total_leads: int,
+    limit: int,
+) -> list[dict[str, Any]]:
+    subcategory_rows = [
+        {
+            "reason_subcategory_raw": str(row.get("item_key") or "").strip(),
+            "leads_with_subcategory": _int_or_none(row.get("lead_count")) or 0,
+        }
+        for row in rows
+        if str(row.get("item_key") or "").strip()
+    ]
+    subcategory_rows.sort(
+        key=lambda row: (
+            -row["leads_with_subcategory"],
+            row["reason_subcategory_raw"],
+        )
+    )
+    return [
+        {
+            "reason_subcategory": _reason_subcategory_label(row["reason_subcategory_raw"]),
+            "reason_subcategory_raw": row["reason_subcategory_raw"],
+            "leads_with_subcategory": row["leads_with_subcategory"],
+            "share_of_cohort_leads": _percentage(
+                row["leads_with_subcategory"],
+                total_leads,
+            ),
+        }
+        for row in subcategory_rows[:limit]
+    ]
+
+
+def _buying_intent_breakdown(
+    rows: list[dict[str, Any]],
+    *,
+    total_leads: int,
+) -> list[dict[str, Any]]:
+    intent_rows = [
+        {
+            "buying_intent_level_raw": str(row.get("item_key") or "unknown").strip(),
+            "lead_count": _int_or_none(row.get("lead_count")) or 0,
+        }
+        for row in rows
+    ]
+    intent_rows.sort(
+        key=lambda row: (
+            -row["lead_count"],
+            row["buying_intent_level_raw"],
+        )
+    )
+    return [
+        {
+            "buying_intent_level": _buying_intent_label(row["buying_intent_level_raw"]),
+            "buying_intent_level_raw": row["buying_intent_level_raw"],
+            "lead_count": row["lead_count"],
+            "share_of_cohort_leads": _percentage(row["lead_count"], total_leads),
+        }
+        for row in intent_rows
+    ]
+
+
+def _recommended_focus_from_issues(
+    individual_issue_distribution: list[dict[str, Any]],
+    *,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "focus_area": row["reason_category"],
+            "leads_with_issue": row["leads_with_issue"],
+            "share_of_cohort_leads": row["share_of_cohort_leads"],
+        }
+        for row in individual_issue_distribution[:limit]
+    ]
+
+
+def _source_text_type_breakdown(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    source_rows = [
+        {
+            "source_text_type": str(row.get("item_key") or "unknown").strip(),
+            "lead_count": _int_or_none(row.get("lead_count")) or 0,
+        }
+        for row in rows
+    ]
+    source_rows.sort(
+        key=lambda row: (
+            -row["lead_count"],
+            row["source_text_type"],
+        )
+    )
+    return source_rows
+
+
 def _error_response(tool_name: str, error: Exception) -> str:
     return _json_response(
         {
@@ -503,10 +1158,7 @@ totals AS (
     COUNT(*) FILTER (WHERE appointment_count > 0)::int AS booked_leads,
     COUNT(*) FILTER (WHERE completed_call_count > 0)::int AS completed_call_leads,
     COUNT(*) FILTER (WHERE signed_contract_count > 0)::int AS signed_leads,
-    COUNT(*) FILTER (
-      WHERE net_collected_amount > 0
-         OR paid_payment_count > 0
-    )::int AS paid_leads,
+    COUNT(*) FILTER (WHERE paid_payment_count > 0)::int AS paid_leads,
     COALESCE(SUM(appointment_count), 0)::int AS appointment_count,
     COALESCE(SUM(completed_call_count), 0)::int AS completed_call_count,
     COALESCE(SUM(no_show_count), 0)::int AS no_show_count,
@@ -776,10 +1428,7 @@ step_counts AS (
     COUNT(*) FILTER (WHERE appointment_count > 0)::int AS booked_leads,
     COUNT(*) FILTER (WHERE completed_call_count > 0)::int AS completed_call_leads,
     COUNT(*) FILTER (WHERE signed_contract_count > 0)::int AS signed_leads,
-    COUNT(*) FILTER (
-      WHERE net_collected_amount > 0
-         OR paid_payment_count > 0
-    )::int AS paid_leads
+    COUNT(*) FILTER (WHERE paid_payment_count > 0)::int AS paid_leads
   FROM scoped
 ),
 movement_drops AS (
@@ -841,7 +1490,6 @@ drop_sets AS (
     conversion_outcome
   FROM scoped
   WHERE signed_contract_count > 0
-    AND COALESCE(net_collected_amount, 0) <= 0
     AND paid_payment_count = 0
 ),
 later_without_previous AS (
@@ -868,10 +1516,7 @@ later_without_previous AS (
     COUNT(*)::int AS offsetting_later_step_leads
   FROM scoped
   WHERE signed_contract_count = 0
-    AND (
-      net_collected_amount > 0
-      OR paid_payment_count > 0
-    )
+    AND paid_payment_count > 0
 ),
 reconciled AS (
   SELECT
@@ -918,6 +1563,94 @@ ORDER BY
   r.lead_count DESC,
   r.funnel_stage ASC,
   r.conversion_outcome ASC
+"""
+
+STUCK_GROUP_FUNNEL_SQL = f"""
+WITH lead_cohort AS (
+  SELECT
+    dls.lead_id AS lead_id,
+    {FINAL_FUNNEL_STAGE_CASE_SQL} AS final_funnel_stage
+  FROM diagnostic_lead_snapshot dls
+  WHERE dls.clerk_org_id = :org_id
+    AND dls.lead_created_at >= CAST(:start_date AS date)
+    AND dls.lead_created_at < CAST(:end_date AS date)
+),
+totals AS (
+  SELECT
+    COUNT(DISTINCT lead_id)::int AS total_leads
+  FROM lead_cohort
+),
+stage_order AS (
+  SELECT
+    1 AS stage_order,
+    'never_booked' AS stage_key,
+    'never_booked' AS cohort_name
+  UNION ALL
+  SELECT
+    2 AS stage_order,
+    'booked_not_completed' AS stage_key,
+    'booked_not_completed' AS cohort_name
+  UNION ALL
+  SELECT
+    3 AS stage_order,
+    'completed_not_signed' AS stage_key,
+    'completed_not_signed' AS cohort_name
+  UNION ALL
+  SELECT
+    4 AS stage_order,
+    'signed_not_paid' AS stage_key,
+    'signed_not_paid' AS cohort_name
+  UNION ALL
+  SELECT
+    5 AS stage_order,
+    'paid_converted' AS stage_key,
+    NULL::text AS cohort_name
+),
+stage_counts AS (
+  SELECT
+    final_funnel_stage AS stage_key,
+    COUNT(DISTINCT lead_id)::int AS lead_count
+  FROM lead_cohort
+  GROUP BY final_funnel_stage
+),
+stage_rows AS (
+  SELECT
+    so.stage_order,
+    so.stage_key,
+    so.cohort_name,
+    COALESCE(sc.lead_count, 0)::int AS lead_count
+  FROM stage_order so
+  LEFT JOIN stage_counts sc
+    ON sc.stage_key = so.stage_key
+),
+unioned AS (
+  SELECT
+    stage_order,
+    stage_key,
+    cohort_name,
+    lead_count
+  FROM stage_rows
+  UNION ALL
+  SELECT
+    6 AS stage_order,
+    'total_leads' AS stage_key,
+    NULL::text AS cohort_name,
+    total_leads AS lead_count
+  FROM totals
+)
+SELECT
+  u.stage_order,
+  u.stage_key,
+  u.cohort_name,
+  u.lead_count,
+  t.total_leads,
+  CASE
+    WHEN t.total_leads = 0 THEN NULL
+    ELSE ROUND(100.0 * u.lead_count / t.total_leads, 2)
+  END AS pct_of_total_leads
+FROM unioned u
+CROSS JOIN totals t
+ORDER BY u.stage_order ASC
 """
 
 SOURCE_SNAPSHOT_SQL_TEMPLATE = """
@@ -1415,6 +2148,265 @@ ORDER BY
   metric_name ASC
 """
 
+RECOMMENDED_TEXT_COHORTS_SQL = STUCK_GROUP_FUNNEL_SQL
+
+TEXT_REASON_SQL_TEMPLATE = """
+WITH period_leads AS (
+  SELECT
+    dls.clerk_org_id AS clerk_org_id,
+    dls.lead_id AS lead_id,
+    dls.appointment_count AS appointment_count,
+    dls.completed_call_count AS completed_call_count,
+    dls.signed_contract_count AS signed_contract_count,
+    dls.paid_payment_count AS paid_payment_count
+  FROM diagnostic_lead_snapshot dls
+  WHERE dls.clerk_org_id = :org_id
+    AND dls.lead_created_at >= CAST(:start_date AS date)
+    AND dls.lead_created_at < CAST(:end_date AS date)
+),
+scoped_leads AS (
+  SELECT
+    dls.clerk_org_id AS clerk_org_id,
+    dls.lead_id AS lead_id
+  FROM period_leads dls
+  WHERE dls.clerk_org_id = :org_id
+    AND {cohort_condition}
+),
+text_rows AS (
+  SELECT
+    sl.lead_id AS lead_id,
+    dti.reason_category AS reason_category,
+    dti.reason_subcategory AS reason_subcategory,
+    dti.is_conversion_blocker AS is_conversion_blocker,
+    dti.buying_intent_level AS buying_intent_level,
+    dti.lead_quality_level AS lead_quality_level,
+    dti.profession_category AS profession_category,
+    dti.employment_status AS employment_status,
+    dti.source_text_type AS source_text_type
+  FROM scoped_leads sl
+  LEFT JOIN diagnostic_text_insights dti
+    ON dti.clerk_org_id = sl.clerk_org_id
+   AND dti.lead_id = sl.lead_id
+  WHERE dti.extraction_status = 'success'
+    AND (:blockers_only = false OR dti.is_conversion_blocker = true)
+),
+known_reasons_per_lead AS (
+  SELECT DISTINCT
+    lead_id,
+    reason_category
+  FROM text_rows
+  WHERE reason_category IS NOT NULL
+    AND reason_category <> 'unknown'
+),
+known_subcategories_per_lead AS (
+  SELECT DISTINCT
+    lead_id,
+    reason_subcategory
+  FROM text_rows
+  WHERE reason_subcategory IS NOT NULL
+    AND reason_subcategory <> 'unknown'
+),
+buying_intent_per_lead AS (
+  SELECT DISTINCT
+    lead_id,
+    COALESCE(NULLIF(BTRIM(buying_intent_level), ''), 'unknown') AS buying_intent_level
+  FROM text_rows
+),
+source_text_type_per_lead AS (
+  SELECT DISTINCT
+    lead_id,
+    COALESCE(NULLIF(BTRIM(source_text_type), ''), 'unknown') AS source_text_type
+  FROM text_rows
+),
+text_coverage_per_lead AS (
+  SELECT
+    sl.lead_id AS lead_id,
+    COUNT(tr.lead_id)::int AS text_insight_count,
+    COUNT(DISTINCT kr.reason_category)::int AS known_reason_count
+  FROM scoped_leads sl
+  LEFT JOIN text_rows tr
+    ON tr.lead_id = sl.lead_id
+  LEFT JOIN known_reasons_per_lead kr
+    ON kr.lead_id = sl.lead_id
+  GROUP BY sl.lead_id
+),
+lead_reason_combinations AS (
+  SELECT
+    sl.lead_id AS lead_id,
+    CASE
+      WHEN COUNT(kr.reason_category) > 0
+      THEN STRING_AGG(kr.reason_category, ' + ' ORDER BY kr.reason_category)
+      WHEN MAX(tc.text_insight_count) > 0
+      THEN 'unknown_reason'
+      ELSE 'no_text_insight_available'
+    END AS issue_combination_raw
+  FROM scoped_leads sl
+  LEFT JOIN known_reasons_per_lead kr
+    ON kr.lead_id = sl.lead_id
+  LEFT JOIN text_coverage_per_lead tc
+    ON tc.lead_id = sl.lead_id
+  GROUP BY sl.lead_id
+),
+coverage AS (
+  SELECT
+    'coverage' AS row_type,
+    NULL::text AS item_key,
+    NULL::int AS lead_count,
+    COUNT(sl.lead_id)::int AS total_cohort_leads,
+    COUNT(*) FILTER (WHERE tc.text_insight_count > 0)::int AS leads_with_text_insights,
+    COUNT(*) FILTER (WHERE tc.known_reason_count > 0)::int AS known_reason_leads,
+    COUNT(*) FILTER (
+      WHERE tc.text_insight_count > 0
+        AND tc.known_reason_count = 0
+    )::int AS unknown_only_reason_leads
+  FROM scoped_leads sl
+  LEFT JOIN text_coverage_per_lead tc
+    ON tc.lead_id = sl.lead_id
+),
+combination_rollup AS (
+  SELECT
+    'combination' AS row_type,
+    issue_combination_raw AS item_key,
+    COUNT(*)::int AS lead_count,
+    NULL::int AS total_cohort_leads,
+    NULL::int AS leads_with_text_insights,
+    NULL::int AS known_reason_leads,
+    NULL::int AS unknown_only_reason_leads
+  FROM lead_reason_combinations
+  GROUP BY issue_combination_raw
+),
+issue_rollup AS (
+  SELECT
+    'issue' AS row_type,
+    reason_category AS item_key,
+    COUNT(DISTINCT lead_id)::int AS lead_count,
+    NULL::int AS total_cohort_leads,
+    NULL::int AS leads_with_text_insights,
+    NULL::int AS known_reason_leads,
+    NULL::int AS unknown_only_reason_leads
+  FROM known_reasons_per_lead
+  GROUP BY reason_category
+),
+subcategory_rollup AS (
+  SELECT
+    'subcategory' AS row_type,
+    reason_subcategory AS item_key,
+    COUNT(DISTINCT lead_id)::int AS lead_count,
+    NULL::int AS total_cohort_leads,
+    NULL::int AS leads_with_text_insights,
+    NULL::int AS known_reason_leads,
+    NULL::int AS unknown_only_reason_leads
+  FROM known_subcategories_per_lead
+  GROUP BY reason_subcategory
+),
+buying_intent_rollup AS (
+  SELECT
+    'buying_intent' AS row_type,
+    buying_intent_level AS item_key,
+    COUNT(DISTINCT lead_id)::int AS lead_count,
+    NULL::int AS total_cohort_leads,
+    NULL::int AS leads_with_text_insights,
+    NULL::int AS known_reason_leads,
+    NULL::int AS unknown_only_reason_leads
+  FROM buying_intent_per_lead
+  GROUP BY buying_intent_level
+),
+source_text_type_rollup AS (
+  SELECT
+    'source_text_type' AS row_type,
+    source_text_type AS item_key,
+    COUNT(DISTINCT lead_id)::int AS lead_count,
+    NULL::int AS total_cohort_leads,
+    NULL::int AS leads_with_text_insights,
+    NULL::int AS known_reason_leads,
+    NULL::int AS unknown_only_reason_leads
+  FROM source_text_type_per_lead
+  GROUP BY source_text_type
+),
+unioned AS (
+  SELECT
+    row_type,
+    item_key,
+    lead_count,
+    total_cohort_leads,
+    leads_with_text_insights,
+    known_reason_leads,
+    unknown_only_reason_leads
+  FROM coverage
+  UNION ALL
+  SELECT
+    row_type,
+    item_key,
+    lead_count,
+    total_cohort_leads,
+    leads_with_text_insights,
+    known_reason_leads,
+    unknown_only_reason_leads
+  FROM combination_rollup
+  UNION ALL
+  SELECT
+    row_type,
+    item_key,
+    lead_count,
+    total_cohort_leads,
+    leads_with_text_insights,
+    known_reason_leads,
+    unknown_only_reason_leads
+  FROM issue_rollup
+  UNION ALL
+  SELECT
+    row_type,
+    item_key,
+    lead_count,
+    total_cohort_leads,
+    leads_with_text_insights,
+    known_reason_leads,
+    unknown_only_reason_leads
+  FROM subcategory_rollup
+  UNION ALL
+  SELECT
+    row_type,
+    item_key,
+    lead_count,
+    total_cohort_leads,
+    leads_with_text_insights,
+    known_reason_leads,
+    unknown_only_reason_leads
+  FROM buying_intent_rollup
+  UNION ALL
+  SELECT
+    row_type,
+    item_key,
+    lead_count,
+    total_cohort_leads,
+    leads_with_text_insights,
+    known_reason_leads,
+    unknown_only_reason_leads
+  FROM source_text_type_rollup
+)
+SELECT
+  row_type,
+  item_key,
+  lead_count,
+  total_cohort_leads,
+  leads_with_text_insights,
+  known_reason_leads,
+  unknown_only_reason_leads
+FROM unioned
+ORDER BY
+  CASE row_type
+    WHEN 'coverage' THEN 1
+    WHEN 'combination' THEN 2
+    WHEN 'issue' THEN 3
+    WHEN 'subcategory' THEN 4
+    WHEN 'buying_intent' THEN 5
+    WHEN 'source_text_type' THEN 6
+    ELSE 7
+  END,
+  lead_count DESC NULLS LAST,
+  item_key ASC
+"""
+
 
 def get_diagnostic_funnel_snapshot(
     org_id: str | None = None,
@@ -1431,21 +2423,49 @@ def get_diagnostic_funnel_snapshot(
         }
         rows = _query_records(FUNNEL_SQL, params, max_rows=100)
         drop_rows = _query_records(DROP_RECONCILIATION_SQL, params, max_rows=100)
+        stuck_group_rows = _query_records(STUCK_GROUP_FUNNEL_SQL, params, max_rows=10)
         sections = _funnel_sections(rows)
+        stuck_group_funnel = _stuck_group_funnel(stuck_group_rows)
+        stage_validation = _stuck_group_validation(stuck_group_funnel)
+        period_metadata = _period_metadata(
+            periods["current_start_date"],
+            periods["current_end_date"],
+            periods["period_anchor_date"],
+        )
+        if not stage_validation["stage_counts_reconcile"]:
+            return _json_ready(
+                {
+                    "status": "validation_failed",
+                    "tool": "get_diagnostic_funnel_snapshot",
+                    "scope_note": SCOPE_NOTE,
+                    "row_count": stage_validation["total_leads"],
+                    "period": period_metadata,
+                    "safe_message": stage_validation["safe_message"],
+                    "funnel_stage_validation": stage_validation,
+                    "stuck_group_funnel": [],
+                    "largest_stuck_group": None,
+                    "selected_text_reason_cohort": None,
+                    "recommended_text_cohorts": [],
+                }
+            )
+        recommended_text_cohorts = _recommended_text_cohorts(stuck_group_funnel)
         return _json_ready(
             {
                 "status": "success",
                 "tool": "get_diagnostic_funnel_snapshot",
                 "scope_note": SCOPE_NOTE,
                 "row_count": sections["total_leads"],
-                "period": _period_metadata(
-                    periods["current_start_date"],
-                    periods["current_end_date"],
-                    periods["period_anchor_date"],
+                "period": period_metadata,
+                "stuck_group_funnel": stuck_group_funnel,
+                "funnel_stage_validation": stage_validation,
+                "largest_stuck_group": _largest_stuck_group(stuck_group_funnel),
+                "selected_text_reason_cohort": (
+                    recommended_text_cohorts[0] if recommended_text_cohorts else None
                 ),
                 "funnel_flow": sections["funnel_flow"],
                 "drop_reconciliation": _drop_reconciliation(drop_rows),
                 "final_position_breakdown": sections["final_position_breakdown"],
+                "recommended_text_cohorts": recommended_text_cohorts,
                 "activity_counts": sections["activity_counts"],
                 "rows": rows,
             }
@@ -1585,6 +2605,164 @@ def get_diagnostic_business_change_snapshot(
         return _error_payload("get_diagnostic_business_change_snapshot", exc)
 
 
+def get_diagnostic_text_reason_snapshot(
+    org_id: str | None = None,
+    current_start_date: str | None = None,
+    current_end_date: str | None = None,
+    cohort_name: str = "completed_not_signed",
+    reason_limit: int = 10,
+    combination_limit: int = 10,
+    subcategory_limit: int = 10,
+    blockers_only: bool = False,
+    include_issue_combinations: bool = False,
+) -> dict[str, Any]:
+    try:
+        cohort_metadata = _text_cohort_metadata(cohort_name)
+        clean_org_id = _default_org_id(org_id)
+        periods = _default_periods(clean_org_id, current_start_date, current_end_date, None, None)
+        safe_reason_limit = _safe_top_limit(reason_limit)
+        safe_combination_limit = _safe_top_limit(combination_limit)
+        safe_subcategory_limit = _safe_top_limit(subcategory_limit)
+        sql = TEXT_REASON_SQL_TEMPLATE.format(
+            cohort_condition=cohort_metadata["condition"],
+        )
+        params = {
+            "org_id": clean_org_id,
+            "start_date": periods["current_start_date"],
+            "end_date": periods["current_end_date"],
+            "blockers_only": bool(blockers_only),
+        }
+        rows = _query_records(sql, params, max_rows=5000)
+        grouped_rows = _split_text_reason_rows(rows)
+        coverage_row = grouped_rows["coverage"][0] if grouped_rows["coverage"] else {}
+        total_leads = _int_or_none(coverage_row.get("total_cohort_leads")) or 0
+        text_insight_coverage = _text_reason_coverage(coverage_row)
+        reason_combination_distribution = _limited_combination_distribution(
+            grouped_rows["combination"],
+            total_leads=total_leads,
+            limit=safe_combination_limit,
+        )
+        combination_total = sum(
+            row["lead_count"] for row in reason_combination_distribution
+        )
+        tables_reconcile = (
+            combination_total == total_leads
+            and bool(text_insight_coverage["coverage_reconciles"])
+        )
+        common_payload = {
+            "tool": "get_diagnostic_text_reason_snapshot",
+            "scope_note": SCOPE_NOTE,
+            "period": _period_metadata(
+                periods["current_start_date"],
+                periods["current_end_date"],
+                periods["period_anchor_date"],
+            ),
+            "cohort": {
+                "cohort_name": cohort_metadata["cohort_name"],
+                "cohort_label": cohort_metadata["cohort_label"],
+                "cohort_definition": cohort_metadata["cohort_definition"],
+                "total_leads": total_leads,
+            },
+            "text_insight_coverage": text_insight_coverage,
+            "display_limits": {
+                "reason_limit": safe_reason_limit,
+                "combination_limit": safe_combination_limit,
+                "subcategory_limit": safe_subcategory_limit,
+            },
+            "default_answer_guidance": {
+                "show_issue_combinations_by_default": False,
+                "issue_combination_table_returned": bool(include_issue_combinations),
+                "individual_issue_note": (
+                    "One lead can have multiple issues, so the individual issue table "
+                    f"does not sum to {total_leads}."
+                ),
+            },
+            "reconciliation": {
+                "selected_cohort_leads": total_leads,
+                "reason_combination_total": combination_total,
+                "coverage_total": text_insight_coverage["total_cohort_leads"],
+                "tables_reconcile": tables_reconcile,
+            },
+            "row_count": total_leads,
+        }
+        if not tables_reconcile:
+            return _json_ready(
+                {
+                    **common_payload,
+                    "status": "limited",
+                    "reason_combination_distribution": [],
+                    "individual_issue_distribution": [],
+                    "recommended_focus": [],
+                    "top_reason_subcategories": [],
+                    "buying_intent_breakdown": [],
+                    "source_text_type_breakdown": [],
+                    "limitations": [
+                        (
+                            "The text reason breakdown could not be safely reconciled "
+                            "with the selected funnel cohort, so reason tables should "
+                            "not be shown for this answer."
+                        ),
+                    ],
+                }
+            )
+
+        fragmentation_note = _combination_fragmentation_note(
+            reason_combination_distribution,
+            total_leads=total_leads,
+        )
+        individual_issue_distribution = _individual_issue_distribution(
+            grouped_rows["issue"],
+            total_leads=total_leads,
+            limit=safe_reason_limit,
+        )
+
+        return _json_ready(
+            {
+                **common_payload,
+                "status": "success",
+                "reason_combination_distribution": (
+                    reason_combination_distribution if include_issue_combinations else []
+                ),
+                "combination_fragmentation_note": (
+                    fragmentation_note if include_issue_combinations else None
+                ),
+                "individual_issue_distribution": individual_issue_distribution,
+                "recommended_focus": _recommended_focus_from_issues(
+                    individual_issue_distribution,
+                ),
+                "top_reason_subcategories": _subcategory_distribution(
+                    grouped_rows["subcategory"],
+                    total_leads=total_leads,
+                    limit=safe_subcategory_limit,
+                ),
+                "buying_intent_breakdown": _buying_intent_breakdown(
+                    grouped_rows["buying_intent"],
+                    total_leads=total_leads,
+                ),
+                "source_text_type_breakdown": _source_text_type_breakdown(
+                    grouped_rows["source_text_type"],
+                ),
+                "limitations": [
+                    (
+                        "Text reasons are extracted from available structured text "
+                        "insight enums, not raw transcripts."
+                    ),
+                    (
+                        "One lead may have multiple issues, so individual issue counts "
+                        "do not sum to the cohort total."
+                    ),
+                    (
+                        "The combination distribution assigns each lead to exactly one "
+                        "combination row and must sum to the cohort total, but it is "
+                        "returned only when include_issue_combinations is true."
+                    ),
+                ],
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 - public tool payloads should stay structured.
+        return _error_payload("get_diagnostic_text_reason_snapshot", exc)
+
+
 def _get_diagnostic_funnel_snapshot_tool(
     org_id: str | None = None,
     current_start_date: str | None = None,
@@ -1686,6 +2864,43 @@ def _get_diagnostic_business_change_snapshot_tool(
         return _error_response("get_diagnostic_business_change_snapshot", exc)
 
 
+def _get_diagnostic_text_reason_snapshot_tool(
+    org_id: str | None = None,
+    current_start_date: str | None = None,
+    current_end_date: str | None = None,
+    cohort_name: str = "completed_not_signed",
+    reason_limit: int = 10,
+    combination_limit: int = 10,
+    subcategory_limit: int = 10,
+    blockers_only: bool = False,
+    include_issue_combinations: bool = False,
+) -> str:
+    """Return safe text-reason evidence for a diagnostic dropped/stuck cohort.
+
+    Dates use lead_created_at cohort logic. Text evidence is aggregated to
+    distinct leads and does not expose raw text or source records. Set
+    include_issue_combinations only when the user explicitly asks for issue
+    combinations or patterns.
+    """
+
+    try:
+        return _json_response(
+            get_diagnostic_text_reason_snapshot(
+                org_id=org_id,
+                current_start_date=current_start_date,
+                current_end_date=current_end_date,
+                cohort_name=cohort_name,
+                reason_limit=reason_limit,
+                combination_limit=combination_limit,
+                subcategory_limit=subcategory_limit,
+                blockers_only=blockers_only,
+                include_issue_combinations=include_issue_combinations,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - tool output should stay JSON.
+        return _error_response("get_diagnostic_text_reason_snapshot", exc)
+
+
 get_diagnostic_funnel_snapshot_tool = tool("get_diagnostic_funnel_snapshot")(
     _get_diagnostic_funnel_snapshot_tool
 )
@@ -1698,10 +2913,14 @@ get_diagnostic_source_quality_snapshot_tool = tool("get_diagnostic_source_qualit
 get_diagnostic_business_change_snapshot_tool = tool("get_diagnostic_business_change_snapshot")(
     _get_diagnostic_business_change_snapshot_tool
 )
+get_diagnostic_text_reason_snapshot_tool = tool("get_diagnostic_text_reason_snapshot")(
+    _get_diagnostic_text_reason_snapshot_tool
+)
 
 DIAGNOSTIC_TOOLS = [
     get_diagnostic_funnel_snapshot_tool,
     get_diagnostic_source_snapshot_tool,
     get_diagnostic_source_quality_snapshot_tool,
     get_diagnostic_business_change_snapshot_tool,
+    get_diagnostic_text_reason_snapshot_tool,
 ]

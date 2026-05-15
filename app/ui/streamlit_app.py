@@ -88,6 +88,7 @@ SAFE_TOOL_PROGRESS_MESSAGES = {
     "get_diagnostic_source_snapshot": "Reviewing source performance signals...",
     "get_diagnostic_source_quality_snapshot": "Checking source quality signals...",
     "get_diagnostic_business_change_snapshot": "Comparing business performance changes...",
+    "get_diagnostic_text_reason_snapshot": "Reconciling text reasons with the selected funnel cohort...",
 }
 
 SQL_FENCE_RE = re.compile(r"```(?:sql)?\s*.*?```", re.IGNORECASE | re.DOTALL)
