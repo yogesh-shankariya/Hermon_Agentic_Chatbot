@@ -12,9 +12,11 @@ import csv
 import html
 import inspect
 import json
+import os
 import re
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -74,6 +76,8 @@ COMPACT_TABLE_MAX_COLUMNS = 8
 COMPACT_TABLE_MAX_ROWS = 30
 MAX_CONTEXT_TURNS = 5
 POC_FALLBACK_ORG_ID = "local_demo"
+SAFE_USER_ORG_ID = "org_dummy_client_demo_001"
+DEFAULT_ORG_ENV_VAR = "HERMON_DEFAULT_CLERK_ORG_ID"
 SUPPLEMENTAL_FLOW_NAMES = (
     "Multi Skills Analytics",
     "Lead 360",
@@ -190,9 +194,95 @@ def is_persistence_error_turn(turn: dict[str, Any]) -> bool:
     )
 
 
+def get_runtime_secret(name: str) -> str | None:
+    """Read Streamlit secrets first, then environment variables."""
+
+    value: Any = None
+    try:
+        value = st.secrets.get(name)
+    except Exception:
+        value = None
+    if value is None:
+        value = os.getenv(name)
+    clean_value = str(value or "").strip()
+    return clean_value or None
+
+
+def resolve_user_org_id() -> str:
+    demo_org_id = get_runtime_secret("DEMO_ORG_ID")
+    if demo_org_id:
+        return demo_org_id
+
+    fallback_org_id = str(os.getenv(DEFAULT_ORG_ENV_VAR) or "").strip()
+    if fallback_org_id == SAFE_USER_ORG_ID:
+        return fallback_org_id
+
+    st.error("Standard access is not configured. Ask the app owner to configure access.")
+    st.stop()
+
+
+def selected_access_mode() -> str:
+    mode = str(st.session_state.get("access_mode") or "User")
+    return "Admin" if mode == "Admin" else "User"
+
+
+def resolve_access_context() -> dict[str, str | bool]:
+    user_org_id = resolve_user_org_id()
+    if selected_access_mode() != "Admin":
+        return {
+            "mode": "User",
+            "access_label": "Mode: User",
+            "active_org_id": user_org_id,
+            "warning": "",
+            "error": "",
+        }
+
+    live_org_id = get_runtime_secret("LIVE_ORG_ID")
+    admin_access_code = get_runtime_secret("ADMIN_ACCESS_CODE")
+    entered_code = str(st.session_state.get("admin_access_code") or "").strip()
+
+    if not live_org_id or not admin_access_code:
+        return {
+            "mode": "User",
+            "access_label": "Mode: User",
+            "active_org_id": user_org_id,
+            "warning": "",
+            "error": "Admin access is not configured. Continuing in User mode.",
+        }
+
+    if entered_code and entered_code == admin_access_code:
+        return {
+            "mode": "Admin",
+            "access_label": "Mode: Admin",
+            "active_org_id": live_org_id,
+            "warning": "",
+            "error": "",
+        }
+
+    return {
+        "mode": "User",
+        "access_label": "Mode: User",
+        "active_org_id": user_org_id,
+        "warning": "Invalid admin access code. Continuing in User mode.",
+        "error": "",
+    }
+
+
 def current_organization_id() -> str:
-    settings = get_sql_agent_settings()
-    return settings.default_org_id or POC_FALLBACK_ORG_ID
+    return str(resolve_access_context()["active_org_id"])
+
+
+@contextmanager
+def active_org_environment(organization_id: str) -> Iterator[None]:
+    previous_org_id = os.environ.get(DEFAULT_ORG_ENV_VAR)
+    os.environ[DEFAULT_ORG_ENV_VAR] = organization_id
+    try:
+        yield
+    finally:
+        if previous_org_id is None:
+            os.environ.pop(DEFAULT_ORG_ENV_VAR, None)
+        else:
+            os.environ[DEFAULT_ORG_ENV_VAR] = previous_org_id
 
 
 def turn_from_poc_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -617,10 +707,9 @@ def effective_runtime_params(params_json: str | None) -> dict[str, Any] | None:
     if not isinstance(parsed_params, dict):
         return None
 
-    settings = get_sql_agent_settings()
     params = dict(parsed_params)
-    if settings.default_org_id:
-        params.setdefault("org_id", settings.default_org_id)
+    params["org_id"] = current_organization_id()
+    settings = get_sql_agent_settings()
     params.setdefault("limit", settings.max_tool_rows)
     return params
 
@@ -1076,6 +1165,33 @@ def clean_answer_for_display(answer: str) -> str:
     return "\n".join(lines).strip() or "Here is the result."
 
 
+def redact_sensitive_display(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            clean_key = str(key).lower()
+            if clean_key in {"org_id", "organization_id", "clerk_org_id"}:
+                redacted[key] = "[hidden]"
+            elif "access_code" in clean_key or "password" in clean_key:
+                redacted[key] = "[hidden]"
+            else:
+                redacted[key] = redact_sensitive_display(item)
+        return redacted
+    if isinstance(value, list):
+        return [redact_sensitive_display(item) for item in value]
+    if isinstance(value, str):
+        return redact_sensitive_text(value)
+    return value
+
+
+def redact_sensitive_text(value: str) -> str:
+    redacted = re.sub(r"\borg_[A-Za-z0-9_-]+\b", "[hidden]", value)
+    admin_access_code = get_runtime_secret("ADMIN_ACCESS_CODE")
+    if admin_access_code:
+        redacted = redacted.replace(admin_access_code, "[hidden]")
+    return redacted
+
+
 def render_sql_dropdown(details: dict[str, Any]) -> None:
     sql = details.get("sql")
     params = details.get("params")
@@ -1089,14 +1205,14 @@ def render_sql_dropdown(details: dict[str, Any]) -> None:
             st.info("SQL was not captured for this turn.")
         if isinstance(effective_params, dict):
             st.caption("Parameters")
-            st.json(effective_params, expanded=False)
+            st.json(redact_sensitive_display(effective_params), expanded=False)
         elif params:
             parsed_params = maybe_json(str(params))
             st.caption("Parameters")
             if parsed_params is not None:
-                st.json(parsed_params, expanded=False)
+                st.json(redact_sensitive_display(parsed_params), expanded=False)
             else:
-                st.code(str(params), language="json")
+                st.code(redact_sensitive_text(str(params)), language="json")
         if tool_error:
             st.error(tool_error)
 
@@ -1122,7 +1238,7 @@ def render_source_data_dropdown(details: dict[str, Any]) -> None:
             "The chatbot summarizes these rows into the answer above; use this table "
             "to verify the numbers and labels."
         )
-        render_result_table(rows)
+        render_result_table(redact_sensitive_display(rows))
 
 
 def stream_answer_text(clean_answer: str) -> Iterator[str]:
@@ -1411,30 +1527,31 @@ def run_question(
     emit_progress("Understanding your question...")
     started_at = time.perf_counter()
     organization_id = current_organization_id()
-    emit_progress("Loading recent conversation context...")
-    poc_history = fetch_router_poc_chat_history(organization_id)
-    emit_progress("Loading the configured agents...")
-    components = get_flow_components(
-        config_mtime_ns=CONFIG_PATH.stat().st_mtime_ns,
-        prompt_mtime_ns=SQL_AGENT_PROMPT_PATH.stat().st_mtime_ns,
-        router_prompt_mtime_ns=ROUTER_PROMPT_PATH.stat().st_mtime_ns,
-        lead_360_prompt_mtime_ns=LEAD_360_PROMPT_PATH.stat().st_mtime_ns,
-        diagnostic_prompt_mtime_ns=DIAGNOSTIC_PROMPT_PATH.stat().st_mtime_ns,
-    )
-    timing_callback = AgentTimingCallback()
-    callbacks: list[BaseCallbackHandler] = [timing_callback]
-    if progress_callback is not None:
-        callbacks.append(AgentProgressCallback(emit_progress))
-    turn = answer_user_question(
-        question,
-        poc_history,
-        router=components["router"],
-        sql_agent=components["sql_agent"],
-        lead_360_agent=components["lead_360_agent"],
-        diagnostic_agent=components["diagnostic_agent"],
-        config={"callbacks": callbacks},
-        progress_callback=emit_progress,
-    )
+    with active_org_environment(organization_id):
+        emit_progress("Loading recent conversation context...")
+        poc_history = fetch_router_poc_chat_history(organization_id)
+        emit_progress("Loading the configured agents...")
+        components = get_flow_components(
+            config_mtime_ns=CONFIG_PATH.stat().st_mtime_ns,
+            prompt_mtime_ns=SQL_AGENT_PROMPT_PATH.stat().st_mtime_ns,
+            router_prompt_mtime_ns=ROUTER_PROMPT_PATH.stat().st_mtime_ns,
+            lead_360_prompt_mtime_ns=LEAD_360_PROMPT_PATH.stat().st_mtime_ns,
+            diagnostic_prompt_mtime_ns=DIAGNOSTIC_PROMPT_PATH.stat().st_mtime_ns,
+        )
+        timing_callback = AgentTimingCallback()
+        callbacks: list[BaseCallbackHandler] = [timing_callback]
+        if progress_callback is not None:
+            callbacks.append(AgentProgressCallback(emit_progress))
+        turn = answer_user_question(
+            question,
+            poc_history,
+            router=components["router"],
+            sql_agent=components["sql_agent"],
+            lead_360_agent=components["lead_360_agent"],
+            diagnostic_agent=components["diagnostic_agent"],
+            config={"callbacks": callbacks},
+            progress_callback=emit_progress,
+        )
     elapsed_seconds = time.perf_counter() - started_at
 
     trace_messages = list(turn.get("trace_messages", []))
@@ -1503,7 +1620,7 @@ def render_tool_call(tool_call: dict[str, Any], index: int) -> None:
         st.markdown(f"**{index}. AI requested tool:** `{name}`")
 
         if not isinstance(args, dict):
-            st.json(safe_json(args), expanded=False)
+            st.json(redact_sensitive_display(safe_json(args)), expanded=False)
             return
 
         query = args.get("query")
@@ -1521,9 +1638,9 @@ def render_tool_call(tool_call: dict[str, Any], index: int) -> None:
             st.caption("Tool parameters")
             parsed_params = maybe_json(str(params_json))
             if parsed_params is not None:
-                st.json(parsed_params, expanded=False)
+                st.json(redact_sensitive_display(parsed_params), expanded=False)
             else:
-                st.code(str(params_json), language="json")
+                st.code(redact_sensitive_text(str(params_json)), language="json")
 
         remaining_args = {
             key: value
@@ -1532,7 +1649,7 @@ def render_tool_call(tool_call: dict[str, Any], index: int) -> None:
         }
         if remaining_args:
             st.caption("Other tool arguments")
-            st.json(safe_json(remaining_args), expanded=False)
+            st.json(redact_sensitive_display(safe_json(remaining_args)), expanded=False)
 
 
 def render_loaded_skill(content: str) -> None:
@@ -1600,7 +1717,7 @@ def render_tool_message(message: object, content: str) -> None:
         else:
             render_sql_result(parsed)
         with st.popover("Raw tool JSON"):
-            st.json(parsed, expanded=True)
+            st.json(redact_sensitive_display(parsed), expanded=True)
         return
 
     st.markdown(content)
@@ -1642,7 +1759,7 @@ def render_message_trace(message: object, index: int) -> None:
 def render_raw_messages(messages: list[object]) -> None:
     for index, message in enumerate(messages, start=1):
         st.markdown(f"**Raw message {index}: `{message_role(message)}`**")
-        st.json(message_to_dict(message), expanded=False)
+        st.json(redact_sensitive_display(message_to_dict(message)), expanded=False)
 
 
 def compact_trace_text(value: Any, max_chars: int = 260) -> str:
@@ -1708,7 +1825,7 @@ def render_router_trace(turn: dict[str, Any]) -> None:
     )
 
     st.markdown("**Router output**")
-    st.json(router_response, expanded=False)
+    st.json(redact_sensitive_display(router_response), expanded=False)
     if standalone_question:
         st.caption("Standalone question used by selected downstream flow")
         st.markdown(standalone_question)
@@ -1743,13 +1860,13 @@ def render_process_trace(turn: dict[str, Any]) -> None:
         with raw_tab:
             if isinstance(turn.get("router_response"), dict):
                 st.markdown("**Router response**")
-                st.json(turn["router_response"], expanded=False)
+                st.json(redact_sensitive_display(turn["router_response"]), expanded=False)
             if isinstance(turn.get("latest_router_history"), list):
                 st.markdown("**Latest router history**")
-                st.json(turn["latest_router_history"], expanded=False)
+                st.json(redact_sensitive_display(turn["latest_router_history"]), expanded=False)
             if isinstance(turn.get("selected_history"), list):
                 st.markdown("**Selected downstream history**")
-                st.json(turn["selected_history"], expanded=False)
+                st.json(redact_sensitive_display(turn["selected_history"]), expanded=False)
             render_raw_messages(turn["trace_messages"])
 
 
@@ -1794,12 +1911,13 @@ def render_question_picker(
     questions: list[dict[str, str]],
     source_file: str,
     key_prefix: str,
+    show_source_file: bool,
 ) -> None:
     with st.container(border=True):
         st.markdown(f"**{title}**")
-        if source_file:
+        if show_source_file and source_file:
             st.caption(f"Loaded {len(questions)} questions from `{source_file}`.")
-        else:
+        elif show_source_file:
             st.caption("No question CSV found.")
 
         question_labels = [
@@ -1828,6 +1946,7 @@ def render_question_picker(
 def render_sidebar() -> None:
     settings = get_sql_agent_settings()
     organization_id = current_organization_id()
+    access_context = resolve_access_context()
     model_label = html.escape(str(settings.model).upper())
     skill_label = html.escape(enabled_skill_summary(settings.enabled_skills))
     memory_label = html.escape(f"Latest {MAX_CONTEXT_TURNS} Q&A turns")
@@ -1835,6 +1954,27 @@ def render_sidebar() -> None:
 
     with st.sidebar:
         st.header("Hermon Q&A Agent")
+        st.radio(
+            "Mode",
+            options=["User", "Admin"],
+            index=0 if selected_access_mode() == "User" else 1,
+            key="access_mode",
+        )
+        if selected_access_mode() == "Admin":
+            st.text_input(
+                "Admin Access Code",
+                type="password",
+                key="admin_access_code",
+            )
+        access_context = resolve_access_context()
+        organization_id = str(access_context["active_org_id"])
+        st.caption(str(access_context["access_label"]))
+        if access_context.get("error"):
+            st.error(str(access_context["error"]))
+        elif access_context.get("warning"):
+            st.warning(str(access_context["warning"]))
+        st.divider()
+
         st.markdown(
             f"""
             <div class="sidebar-module-card skill">
@@ -1899,7 +2039,8 @@ def render_sidebar() -> None:
             st.rerun()
 
         st.divider()
-        st.markdown("**Tested questions**")
+        show_source_file = selected_access_mode() == "Admin"
+        st.markdown("**Question bank**" if show_source_file else "**Suggested questions**")
         for config in QUESTION_PICKER_CONFIGS:
             question_set = question_matrix.get(config["key"], {})
             render_question_picker(
@@ -1909,6 +2050,7 @@ def render_sidebar() -> None:
                 questions=question_set.get("questions", []),
                 source_file=str(question_set.get("source_file") or ""),
                 key_prefix=config["key"],
+                show_source_file=show_source_file,
             )
             st.markdown("")
 

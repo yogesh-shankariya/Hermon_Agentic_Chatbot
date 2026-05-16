@@ -212,8 +212,8 @@ def run_readonly_sql(query: str, params_json: str = "{}") -> str:
     """Execute safe read-only SQL against Postgres and return JSON rows.
 
     The SQL must use `:org_id` for tenant scope. This tool injects
-    HERMON_DEFAULT_CLERK_ORG_ID as `org_id` when it is not provided in
-    params_json. Daily, weekly, or monthly trend queries that omit
+    HERMON_DEFAULT_CLERK_ORG_ID as `org_id` and ignores any model-supplied
+    org_id in params_json. Daily, weekly, or monthly trend queries that omit
     start_date/end_date receive application defaults when granularity can be
     inferred from DATE_TRUNC. Non-trend queries that use both :start_date and
     :end_date but omit params receive the previous completed calendar month as
@@ -237,7 +237,7 @@ def run_readonly_sql(query: str, params_json: str = "{}") -> str:
         params = _load_params(params_json)
         # The agent must write tenant-scoped SQL, but this tool owns injecting
         # the actual tenant value so the model never sees or hardcodes it.
-        params.setdefault("org_id", settings.default_org_id)
+        params["org_id"] = settings.default_org_id
         params.setdefault("limit", max_rows)
         _apply_default_date_window(sql, params)
         rows = get_db().query_records(sql, params=params, max_rows=max_rows)

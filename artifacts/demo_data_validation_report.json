@@ -1,0 +1,1066 @@
+{
+  "org_id": "org_dummy_client_demo_001",
+  "started_at": "2026-05-16T10:05:02.915379+00:00",
+  "finished_at": "2026-05-16T10:05:53.082246+00:00",
+  "duration_seconds": 50.167,
+  "overall_status": "FAILED",
+  "checks": [
+    {
+      "name": "sales_statuses_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "sales_statuses_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "10",
+      "actual": "10",
+      "details": null
+    },
+    {
+      "name": "marketing_sources_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "marketing_sources_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "10",
+      "actual": "10",
+      "details": null
+    },
+    {
+      "name": "programs_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "programs_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "5",
+      "actual": "5",
+      "details": null
+    },
+    {
+      "name": "appointment_event_types_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "appointment_event_types_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "5",
+      "actual": "5",
+      "details": null
+    },
+    {
+      "name": "leads_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "leads_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "500",
+      "actual": "500",
+      "details": null
+    },
+    {
+      "name": "opt_ins_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "opt_ins_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "650",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "traffic_attributions_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "traffic_attributions_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "650",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "opt_in_question_answers_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "opt_in_question_answers_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "6500",
+      "actual": "6500",
+      "details": null
+    },
+    {
+      "name": "appointments_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "appointments_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "445",
+      "actual": "445",
+      "details": null
+    },
+    {
+      "name": "fathom_call_records_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "fathom_call_records_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "285",
+      "actual": "285",
+      "details": null
+    },
+    {
+      "name": "contracts_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "contracts_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "178",
+      "actual": "178",
+      "details": null
+    },
+    {
+      "name": "payments_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "payments_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "190",
+      "actual": "190",
+      "details": null
+    },
+    {
+      "name": "refunds_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "refunds_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "12",
+      "actual": "12",
+      "details": null
+    },
+    {
+      "name": "diagnostic_text_insights_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "diagnostic_text_insights_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "405",
+      "actual": "405",
+      "details": null
+    },
+    {
+      "name": "diagnostic_lead_snapshot_exists",
+      "severity": "critical",
+      "passed": true,
+      "expected": "required table exists",
+      "actual": "exists",
+      "details": null
+    },
+    {
+      "name": "diagnostic_lead_snapshot_row_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "500",
+      "actual": "500",
+      "details": null
+    },
+    {
+      "name": "invoices_not_seeded",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "payment_links_not_seeded",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "payment_proofs_not_seeded",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "contract_subscriptions_not_seeded",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "subscription_checkout_links_not_seeded",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "unmatched_payments_optional_exists",
+      "severity": "info",
+      "passed": true,
+      "expected": "optional table may be absent",
+      "actual": "absent",
+      "details": null
+    },
+    {
+      "name": "provider_integrations_not_seeded",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "provider_credentials_not_seeded",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "webhook_events_not_seeded",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "integration_health_checks_not_seeded",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "audit_logs_not_seeded",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "notification_logs_not_seeded",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "no_demo_created_rows_under_other_org",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "monthly_lead_distribution",
+      "severity": "critical",
+      "passed": true,
+      "expected": "{\"2025-11\": 55, \"2025-12\": 70, \"2026-01\": 95, \"2026-02\": 82, \"2026-03\": 90, \"2026-04\": 108}",
+      "actual": "{\"2025-11\": 55, \"2025-12\": 70, \"2026-01\": 95, \"2026-02\": 82, \"2026-03\": 90, \"2026-04\": 108}",
+      "details": null
+    },
+    {
+      "name": "lead_created_at_within_demo_window",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "monthly_trend_shape",
+      "severity": "high",
+      "passed": true,
+      "expected": "growth/drop/recovery story",
+      "actual": "{\"2025-11\": 55, \"2025-12\": 70, \"2026-01\": 95, \"2026-02\": 82, \"2026-03\": 90, \"2026-04\": 108}",
+      "details": null
+    },
+    {
+      "name": "source_distribution",
+      "severity": "critical",
+      "passed": true,
+      "expected": "{\"Calendly\": 30, \"Email Campaign\": 35, \"Facebook\": 90, \"Google Search\": 70, \"Instagram\": 60, \"Landing Page\": 30, \"Organic Search\": 20, \"Referral\": 40, \"Webinar\": 60, \"YouTube\": 65}",
+      "actual": "{\"Calendly\": 30, \"Email Campaign\": 35, \"Facebook\": 90, \"Google Search\": 70, \"Instagram\": 60, \"Landing Page\": 30, \"Organic Search\": 20, \"Referral\": 40, \"Webinar\": 60, \"YouTube\": 65}",
+      "details": null
+    },
+    {
+      "name": "lead_source_quality",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "snapshot_source_quality_flags",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "scenario_distribution_from_seed_markers",
+      "severity": "critical",
+      "passed": true,
+      "expected": "{\"booked_not_completed\": 90, \"completed_not_signed\": 150, \"lead_only\": 75, \"lost\": 30, \"paid_converted\": 110, \"signed_not_paid\": 25, \"unqualified\": 20}",
+      "actual": "{\"booked_not_completed\": 90, \"completed_not_signed\": 150, \"lead_only\": 75, \"lost\": 30, \"paid_converted\": 110, \"signed_not_paid\": 25, \"unqualified\": 20}",
+      "details": null
+    },
+    {
+      "name": "scenario_behavior_consistency",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "snapshot_funnel_behavior",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "snapshot_has_multiple_funnel_stages",
+      "severity": "medium",
+      "passed": true,
+      "expected": "at least 6 stages",
+      "actual": "7",
+      "details": null
+    },
+    {
+      "name": "lead_status_join",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "lead_first_source_join",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "lead_last_source_join",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "opt_in_lead_join",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "traffic_opt_in_join",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "answer_opt_in_join",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "appointment_relationships",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "fathom_appointment_join",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "contract_relationships",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "payment_relationships",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "refund_payment_join",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "diagnostic_text_lead_join",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "diagnostic_snapshot_lead_join",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "cross_org_parent_child_mismatch",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "opt_in_after_lead",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "traffic_after_opt_in",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "appointment_after_lead",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "fathom_timeline",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "contract_timeline",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "payment_timeline",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "refund_timeline",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "answers_after_opt_in",
+      "severity": "critical",
+      "passed": false,
+      "expected": "0 offending rows",
+      "actual": "1250 offending rows",
+      "details": "by_question: Are you the final decision maker?=107, How soon do you want to get started?=119, What budget range are you comfortable with?=111, What do you do for work?=143, What is your biggest challenge right now?=123, What is your current experience level?=115, What is your employment status?=139, What is your main goal?=127, Which city or region are you based in?=131, Which country are you from?=135"
+    },
+    {
+      "name": "strict_fathom_coverage",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "completed_appointment_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "285",
+      "actual": "285",
+      "details": null
+    },
+    {
+      "name": "fathom_content_quality",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "contract_business_rules",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "paid_and_signed_not_paid_have_signed_contracts",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "signed_contract_value_breakdowns",
+      "severity": "high",
+      "passed": true,
+      "expected": "all breakdown sums reconcile",
+      "actual": "0 failed breakdown(s)",
+      "details": null
+    },
+    {
+      "name": "payment_business_rules",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "scenario_payment_requirements",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "day_gross_refund_net_revenue_reconcile",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "week_gross_refund_net_revenue_reconcile",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "month_gross_refund_net_revenue_reconcile",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "paid_revenue_by_source",
+      "severity": "high",
+      "passed": true,
+      "expected": "all breakdown sums reconcile",
+      "actual": "0 failed breakdown(s)",
+      "details": null
+    },
+    {
+      "name": "payment_status_amounts_reconcile",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "refund_business_rules",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "refund_amount_breakdowns",
+      "severity": "high",
+      "passed": true,
+      "expected": "all breakdown sums reconcile",
+      "actual": "0 failed breakdown(s)",
+      "details": null
+    },
+    {
+      "name": "snapshot_matches_active_leads",
+      "severity": "critical",
+      "passed": true,
+      "expected": "500",
+      "actual": "500",
+      "details": null
+    },
+    {
+      "name": "snapshot_base_table_consistency",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "snapshot_quality_flags",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "diagnostic_text_insights_count",
+      "severity": "critical",
+      "passed": true,
+      "expected": "405",
+      "actual": "405",
+      "details": null
+    },
+    {
+      "name": "diagnostic_text_insight_relationships",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "diagnostic_text_insight_allowed_values",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "diagnostic_text_unknown_reason_threshold",
+      "severity": "high",
+      "passed": false,
+      "expected": "< 5%",
+      "actual": "19.753%",
+      "details": "unknown_by_scenario: paid_converted=80"
+    },
+    {
+      "name": "diagnostic_text_scenario_consistency",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "acquisition_completeness",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "every_lead_has_opt_in",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "form_question_answer_quality",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "form_question_present:What do you do for work?",
+      "severity": "medium",
+      "passed": true,
+      "expected": "650 answers",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "form_question_present:What is your employment status?",
+      "severity": "medium",
+      "passed": true,
+      "expected": "650 answers",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "form_question_present:Which country are you from?",
+      "severity": "medium",
+      "passed": true,
+      "expected": "650 answers",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "form_question_present:Which city or region are you based in?",
+      "severity": "medium",
+      "passed": true,
+      "expected": "650 answers",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "form_question_present:What is your main goal?",
+      "severity": "medium",
+      "passed": true,
+      "expected": "650 answers",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "form_question_present:What is your biggest challenge right now?",
+      "severity": "medium",
+      "passed": true,
+      "expected": "650 answers",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "form_question_present:How soon do you want to get started?",
+      "severity": "medium",
+      "passed": true,
+      "expected": "650 answers",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "form_question_present:What is your current experience level?",
+      "severity": "medium",
+      "passed": true,
+      "expected": "650 answers",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "form_question_present:What budget range are you comfortable with?",
+      "severity": "medium",
+      "passed": true,
+      "expected": "650 answers",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "form_question_present:Are you the final decision maker?",
+      "severity": "medium",
+      "passed": true,
+      "expected": "650 answers",
+      "actual": "650",
+      "details": null
+    },
+    {
+      "name": "unsafe_payloads_urls_and_provider_ids",
+      "severity": "high",
+      "passed": false,
+      "expected": "0 offending rows",
+      "actual": "202 offending rows",
+      "details": "breakdown: payments_external_id=190, refunds_external_id=12"
+    },
+    {
+      "name": "synthetic_lead_identity",
+      "severity": "critical",
+      "passed": true,
+      "expected": "0 offending rows",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "denylist_scan",
+      "severity": "info",
+      "passed": true,
+      "expected": "optional denylist not provided",
+      "actual": "skipped",
+      "details": null
+    },
+    {
+      "name": "lead_source_sums",
+      "severity": "high",
+      "passed": true,
+      "expected": "reconciles",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "lead_status_sums",
+      "severity": "high",
+      "passed": true,
+      "expected": "reconciles",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "appointment_breakdown_sums",
+      "severity": "high",
+      "passed": true,
+      "expected": "reconciles",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "opt_in_provider_form_sums",
+      "severity": "high",
+      "passed": true,
+      "expected": "reconciles",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "diagnostic_funnel_sums",
+      "severity": "high",
+      "passed": true,
+      "expected": "reconciles",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "diagnostic_source_sums",
+      "severity": "high",
+      "passed": true,
+      "expected": "reconciles",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "diagnostic_source_quality_issue_count",
+      "severity": "high",
+      "passed": true,
+      "expected": "0 unexpected source quality flags",
+      "actual": "0 offending rows",
+      "details": null
+    },
+    {
+      "name": "guardrail:Revenue by UTM campaign is not s",
+      "severity": "info",
+      "passed": true,
+      "expected": "warning only",
+      "actual": "Revenue by UTM campaign is not supported without an explicit attribution rule.",
+      "details": null
+    },
+    {
+      "name": "guardrail:Revenue by landing page is not s",
+      "severity": "info",
+      "passed": true,
+      "expected": "warning only",
+      "actual": "Revenue by landing page is not supported without an explicit attribution rule.",
+      "details": null
+    },
+    {
+      "name": "guardrail:Revenue by form answer is not su",
+      "severity": "info",
+      "passed": true,
+      "expected": "warning only",
+      "actual": "Revenue by form answer is not supported without an explicit attribution rule.",
+      "details": null
+    },
+    {
+      "name": "guardrail:ROAS, ad spend, and cost per lea",
+      "severity": "info",
+      "passed": true,
+      "expected": "warning only",
+      "actual": "ROAS, ad spend, and cost per lead are not available in this dataset.",
+      "details": null
+    }
+  ],
+  "failed_checks": [
+    {
+      "name": "answers_after_opt_in",
+      "severity": "critical",
+      "passed": false,
+      "expected": "0 offending rows",
+      "actual": "1250 offending rows",
+      "details": "by_question: Are you the final decision maker?=107, How soon do you want to get started?=119, What budget range are you comfortable with?=111, What do you do for work?=143, What is your biggest challenge right now?=123, What is your current experience level?=115, What is your employment status?=139, What is your main goal?=127, Which city or region are you based in?=131, Which country are you from?=135"
+    },
+    {
+      "name": "diagnostic_text_unknown_reason_threshold",
+      "severity": "high",
+      "passed": false,
+      "expected": "< 5%",
+      "actual": "19.753%",
+      "details": "unknown_by_scenario: paid_converted=80"
+    },
+    {
+      "name": "unsafe_payloads_urls_and_provider_ids",
+      "severity": "high",
+      "passed": false,
+      "expected": "0 offending rows",
+      "actual": "202 offending rows",
+      "details": "breakdown: payments_external_id=190, refunds_external_id=12"
+    }
+  ],
+  "row_counts": {
+    "sales_statuses": 10,
+    "marketing_sources": 10,
+    "programs": 5,
+    "appointment_event_types": 5,
+    "leads": 500,
+    "opt_ins": 650,
+    "traffic_attributions": 650,
+    "opt_in_question_answers": 6500,
+    "appointments": 445,
+    "fathom_call_records": 285,
+    "contracts": 178,
+    "payments": 190,
+    "refunds": 12,
+    "diagnostic_text_insights": 405,
+    "diagnostic_lead_snapshot": 500
+  },
+  "money_totals_minor": {
+    "gross_paid": 36050000,
+    "pending": 4800000,
+    "failed": 4050000,
+    "succeeded_refunds": 462500,
+    "net_collected": 35587500
+  },
+  "money_totals_eur": {
+    "gross_paid": "360500.00",
+    "pending": "48000.00",
+    "failed": "40500.00",
+    "succeeded_refunds": "4625.00",
+    "net_collected": "355875.00"
+  }
+}
