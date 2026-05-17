@@ -67,6 +67,11 @@ class DiagnosticLeadSnapshotSqlTests(unittest.TestCase):
         self.assertIn("completed_calls_missing_fathom_count", ddl)
         self.assertIn("completed_call_fathom_coverage_rate", ddl)
         self.assertIn("contract_sent_lifecycle_count", ddl)
+        self.assertIn("latest_profession text", ddl)
+        self.assertIn("latest_employment_status text", ddl)
+        alter_sql = "\n".join(lead_snapshot.ALTER_TABLE_SQL)
+        self.assertIn("ADD COLUMN IF NOT EXISTS latest_profession TEXT", alter_sql)
+        self.assertIn("ADD COLUMN IF NOT EXISTS latest_employment_status TEXT", alter_sql)
         self.assertIn("CONSTRAINT uq_dls_org_lead", ddl)
         self.assertIn("CONSTRAINT chk_dls_source_confidence", ddl)
         self.assertIn("CONSTRAINT chk_dls_funnel_stage", ddl)
@@ -87,6 +92,16 @@ class DiagnosticLeadSnapshotSqlTests(unittest.TestCase):
         self.assertIn("Unknown Event Type", sql)
         self.assertIn("SUM(COALESCE(pr.amount, 0)) FILTER (WHERE pr.status::text = 'PAID') / 100.0", sql)
         self.assertIn("SUM(COALESCE(r.amount, 0)) FILTER (WHERE r.status::text = 'SUCCEEDED') / 100.0", sql)
+        self.assertIn("latest_profession AS", sql)
+        self.assertIn("latest_employment_status AS", sql)
+        self.assertIn("LOWER(BTRIM(q.question)) = LOWER('What do you do for work?')", sql)
+        self.assertIn(
+            "LOWER(BTRIM(q.question)) = LOWER('What is your employment status?')",
+            sql,
+        )
+        self.assertIn("COALESCE(q.created_at, o.created_at) DESC", sql)
+        self.assertIn("fs.latest_profession", sql)
+        self.assertIn("fs.latest_employment_status", sql)
         self.assertNotIn("contract_viewed_lifecycle_count", sql)
 
     def test_validation_checks_exact_one_row_and_json_flags(self):
@@ -96,6 +111,8 @@ class DiagnosticLeadSnapshotSqlTests(unittest.TestCase):
         self.assertIn("extra_snapshot_without_active_lead", sql)
         self.assertIn("duplicate_org_lead_rows", sql)
         self.assertIn("json_flag_array_contains_null", sql)
+        self.assertIn("blank_latest_profession", sql)
+        self.assertIn("blank_latest_employment_status", sql)
 
     def test_plain_postgres_urls_use_installed_psycopg_driver(self):
         self.assertEqual(

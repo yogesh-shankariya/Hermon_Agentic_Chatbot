@@ -57,6 +57,104 @@ MONTHLY_LEADS = {
     "2026-04": 108,
 }
 
+MONTHLY_PROFESSION_DISTRIBUTION = {
+    "2025-11": {
+        "Business Owner": 8,
+        "Employee": 10,
+        "Self-employed": 6,
+        "Sales or Marketing": 6,
+        "Technology": 5,
+        "Trader / Investor": 4,
+        "Healthcare": 5,
+        "Student": 6,
+        "Retired": 3,
+        "Unemployed": 2,
+    },
+    "2025-12": {
+        "Business Owner": 11,
+        "Employee": 13,
+        "Self-employed": 7,
+        "Sales or Marketing": 8,
+        "Technology": 7,
+        "Trader / Investor": 5,
+        "Healthcare": 6,
+        "Student": 7,
+        "Retired": 4,
+        "Unemployed": 2,
+    },
+    "2026-01": {
+        "Business Owner": 18,
+        "Employee": 17,
+        "Self-employed": 12,
+        "Sales or Marketing": 10,
+        "Technology": 10,
+        "Trader / Investor": 8,
+        "Healthcare": 7,
+        "Student": 7,
+        "Retired": 4,
+        "Unemployed": 2,
+    },
+    "2026-02": {
+        "Business Owner": 16,
+        "Employee": 14,
+        "Self-employed": 11,
+        "Sales or Marketing": 9,
+        "Technology": 9,
+        "Trader / Investor": 7,
+        "Healthcare": 6,
+        "Student": 5,
+        "Retired": 3,
+        "Unemployed": 2,
+    },
+    "2026-03": {
+        "Business Owner": 20,
+        "Employee": 15,
+        "Self-employed": 13,
+        "Sales or Marketing": 10,
+        "Technology": 9,
+        "Trader / Investor": 9,
+        "Healthcare": 6,
+        "Student": 4,
+        "Retired": 3,
+        "Unemployed": 1,
+    },
+    "2026-04": {
+        "Business Owner": 28,
+        "Employee": 16,
+        "Self-employed": 16,
+        "Sales or Marketing": 12,
+        "Technology": 11,
+        "Trader / Investor": 11,
+        "Healthcare": 7,
+        "Student": 4,
+        "Retired": 2,
+        "Unemployed": 1,
+    },
+}
+
+PROFESSION_COUNTS = {
+    "Business Owner": 101,
+    "Employee": 85,
+    "Self-employed": 65,
+    "Sales or Marketing": 55,
+    "Technology": 51,
+    "Trader / Investor": 44,
+    "Healthcare": 37,
+    "Student": 33,
+    "Retired": 19,
+    "Unemployed": 10,
+}
+
+EMPLOYMENT_STATUS_COUNTS = {
+    "Full-time": 170,
+    "Business Owner": 105,
+    "Self-employed": 95,
+    "Part-time": 50,
+    "Student": 35,
+    "Unemployed": 25,
+    "Retired": 20,
+}
+
 SOURCE_COUNTS = {
     "Facebook": 90,
     "Instagram": 60,
@@ -267,6 +365,14 @@ def _sqlalchemy_psycopg_url(database_url: str) -> str:
     if clean.startswith("postgres://"):
         return clean.replace("postgres://", "postgresql+psycopg://", 1)
     return clean
+
+
+def flatten_monthly_distribution(distribution: dict[str, dict[str, int]]) -> dict[str, int]:
+    return {
+        f"{month_key}|{bucket}": count
+        for month_key, buckets in distribution.items()
+        for bucket, count in buckets.items()
+    }
 
 
 class DemoValidator:
@@ -1080,6 +1186,201 @@ class DemoValidator:
 
     def diagnostic_snapshot(self) -> None:
         self.check_count("snapshot_matches_active_leads", "critical", "SELECT COUNT(*)::int FROM diagnostic_lead_snapshot WHERE clerk_org_id = :org_id", 500)
+        self.check_zero(
+            "snapshot_exactly_one_row_per_lead",
+            "critical",
+            """
+            SELECT COUNT(*)::int
+            FROM (
+              SELECT lead_id
+              FROM diagnostic_lead_snapshot
+              WHERE clerk_org_id = :org_id
+              GROUP BY lead_id
+              HAVING COUNT(*) <> 1
+            ) duplicates
+            """,
+        )
+        self.check_zero(
+            "snapshot_latest_profile_blank_strings",
+            "critical",
+            """
+            SELECT COUNT(*)::int
+            FROM diagnostic_lead_snapshot
+            WHERE clerk_org_id = :org_id
+              AND (
+                (latest_profession IS NOT NULL AND NULLIF(BTRIM(latest_profession), '') IS NULL)
+                OR (
+                  latest_employment_status IS NOT NULL
+                  AND NULLIF(BTRIM(latest_employment_status), '') IS NULL
+                )
+              )
+            """,
+        )
+        self.check_count(
+            "snapshot_latest_profession_populated",
+            "high",
+            """
+            SELECT COUNT(*)::int
+            FROM diagnostic_lead_snapshot
+            WHERE clerk_org_id = :org_id
+              AND latest_profession IS NOT NULL
+            """,
+            500,
+        )
+        self.check_count(
+            "snapshot_latest_employment_status_populated",
+            "high",
+            """
+            SELECT COUNT(*)::int
+            FROM diagnostic_lead_snapshot
+            WHERE clerk_org_id = :org_id
+              AND latest_employment_status IS NOT NULL
+            """,
+            500,
+        )
+        self.check_distribution(
+            "snapshot_latest_profession_distribution",
+            "high",
+            """
+            SELECT latest_profession AS bucket, COUNT(*)::int AS row_count
+            FROM diagnostic_lead_snapshot
+            WHERE clerk_org_id = :org_id
+            GROUP BY latest_profession
+            ORDER BY latest_profession
+            """,
+            PROFESSION_COUNTS,
+        )
+        self.check_distribution(
+            "snapshot_latest_profession_monthly_distribution",
+            "high",
+            """
+            SELECT
+              to_char(date_trunc('month', lead_created_at), 'YYYY-MM') || '|' || latest_profession AS bucket,
+              COUNT(*)::int AS row_count
+            FROM diagnostic_lead_snapshot
+            WHERE clerk_org_id = :org_id
+            GROUP BY 1
+            ORDER BY 1
+            """,
+            flatten_monthly_distribution(MONTHLY_PROFESSION_DISTRIBUTION),
+        )
+        self.check_distribution(
+            "snapshot_latest_employment_status_distribution",
+            "high",
+            """
+            SELECT latest_employment_status AS bucket, COUNT(*)::int AS row_count
+            FROM diagnostic_lead_snapshot
+            WHERE clerk_org_id = :org_id
+            GROUP BY latest_employment_status
+            ORDER BY latest_employment_status
+            """,
+            EMPLOYMENT_STATUS_COUNTS,
+        )
+        self.check_zero(
+            "snapshot_employment_status_not_evenly_distributed",
+            "high",
+            """
+            WITH buckets AS (
+              SELECT latest_employment_status, COUNT(*)::int AS row_count
+              FROM diagnostic_lead_snapshot
+              WHERE clerk_org_id = :org_id
+              GROUP BY latest_employment_status
+            )
+            SELECT CASE WHEN COUNT(DISTINCT row_count) = 1 THEN 1 ELSE 0 END::int
+            FROM buckets
+            """,
+            expected="non-even employment status distribution",
+        )
+        self.check_zero(
+            "snapshot_latest_profile_no_unknown_values",
+            "high",
+            """
+            SELECT COUNT(*)::int
+            FROM diagnostic_lead_snapshot
+            WHERE clerk_org_id = :org_id
+              AND (
+                LOWER(BTRIM(COALESCE(latest_profession, ''))) IN ('unknown', 'not set', 'n/a')
+                OR LOWER(BTRIM(COALESCE(latest_employment_status, ''))) IN ('unknown', 'not set', 'n/a')
+              )
+            """,
+        )
+        self.check_zero(
+            "snapshot_profession_not_evenly_distributed",
+            "high",
+            """
+            WITH buckets AS (
+              SELECT latest_profession, COUNT(*)::int AS row_count
+              FROM diagnostic_lead_snapshot
+              WHERE clerk_org_id = :org_id
+              GROUP BY latest_profession
+            )
+            SELECT CASE WHEN COUNT(DISTINCT row_count) = 1 THEN 1 ELSE 0 END::int
+            FROM buckets
+            """,
+            expected="non-even profile distribution",
+        )
+        self.check_zero(
+            "snapshot_latest_profile_matches_latest_answers",
+            "critical",
+            """
+            WITH latest_profession AS (
+              SELECT DISTINCT ON (o.lead_id)
+                o.lead_id,
+                NULLIF(BTRIM(q.answer), '') AS latest_profession
+              FROM opt_ins o
+              JOIN opt_in_question_answers q
+                ON q.opt_in_id = o.id
+              WHERE o.clerk_org_id = :org_id
+                AND LOWER(BTRIM(q.question)) = LOWER('What do you do for work?')
+                AND NULLIF(BTRIM(q.answer), '') IS NOT NULL
+              ORDER BY
+                o.lead_id,
+                COALESCE(q.created_at, o.created_at) DESC,
+                o.created_at DESC,
+                o.id DESC,
+                q.id DESC
+            ),
+            latest_employment_status AS (
+              SELECT DISTINCT ON (o.lead_id)
+                o.lead_id,
+                NULLIF(BTRIM(q.answer), '') AS latest_employment_status
+              FROM opt_ins o
+              JOIN opt_in_question_answers q
+                ON q.opt_in_id = o.id
+              WHERE o.clerk_org_id = :org_id
+                AND LOWER(BTRIM(q.question)) = LOWER('What is your employment status?')
+                AND NULLIF(BTRIM(q.answer), '') IS NOT NULL
+              ORDER BY
+                o.lead_id,
+                COALESCE(q.created_at, o.created_at) DESC,
+                o.created_at DESC,
+                o.id DESC,
+                q.id DESC
+            ),
+            expected AS (
+              SELECT
+                l.id AS lead_id,
+                lp.latest_profession,
+                les.latest_employment_status
+              FROM leads l
+              LEFT JOIN latest_profession lp
+                ON lp.lead_id = l.id
+              LEFT JOIN latest_employment_status les
+                ON les.lead_id = l.id
+              WHERE l.clerk_org_id = :org_id
+                AND l.is_deleted = false
+            )
+            SELECT COUNT(*)::int
+            FROM diagnostic_lead_snapshot d
+            JOIN expected e
+              ON e.lead_id = d.lead_id
+            WHERE d.clerk_org_id = :org_id
+              AND (
+                d.latest_profession IS DISTINCT FROM e.latest_profession
+                OR d.latest_employment_status IS DISTINCT FROM e.latest_employment_status
+              )
+            """,
+        )
         self.check_zero(
             "snapshot_base_table_consistency",
             "critical",

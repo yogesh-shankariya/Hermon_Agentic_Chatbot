@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS diagnostic_lead_snapshot (
   latest_opt_in_source text,
   first_provider_form_name text,
   latest_provider_form_name text,
+  latest_profession text,
+  latest_employment_status text,
   first_utm_source text,
   first_utm_medium text,
   first_utm_campaign text,
@@ -202,6 +204,15 @@ CREATE TABLE IF NOT EXISTS diagnostic_lead_snapshot (
 """
 
 
+ALTER_TABLE_SQL = [
+    "ALTER TABLE diagnostic_lead_snapshot ADD COLUMN IF NOT EXISTS latest_profession TEXT",
+    (
+        "ALTER TABLE diagnostic_lead_snapshot "
+        "ADD COLUMN IF NOT EXISTS latest_employment_status TEXT"
+    ),
+]
+
+
 CREATE_INDEX_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_dls_org ON diagnostic_lead_snapshot (clerk_org_id)",
     "CREATE INDEX IF NOT EXISTS idx_dls_org_lead ON diagnostic_lead_snapshot (clerk_org_id, lead_id)",
@@ -211,6 +222,8 @@ CREATE_INDEX_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_dls_org_conversion_outcome ON diagnostic_lead_snapshot (clerk_org_id, conversion_outcome)",
     "CREATE INDEX IF NOT EXISTS idx_dls_org_first_source ON diagnostic_lead_snapshot (clerk_org_id, first_source)",
     "CREATE INDEX IF NOT EXISTS idx_dls_org_last_source ON diagnostic_lead_snapshot (clerk_org_id, last_source)",
+    "CREATE INDEX IF NOT EXISTS idx_dls_org_latest_profession ON diagnostic_lead_snapshot (clerk_org_id, latest_profession)",
+    "CREATE INDEX IF NOT EXISTS idx_dls_org_latest_employment_status ON diagnostic_lead_snapshot (clerk_org_id, latest_employment_status)",
     "CREATE INDEX IF NOT EXISTS idx_dls_org_source_confidence ON diagnostic_lead_snapshot (clerk_org_id, source_confidence)",
     "CREATE INDEX IF NOT EXISTS idx_dls_org_net_collected_amount ON diagnostic_lead_snapshot (clerk_org_id, net_collected_amount)",
     "CREATE INDEX IF NOT EXISTS idx_dls_org_signed_contract_value ON diagnostic_lead_snapshot (clerk_org_id, signed_contract_value)",
@@ -392,6 +405,40 @@ question_answer_agg AS (
     ON o.id = q.opt_in_id
   WHERE o.clerk_org_id = :org_id
   GROUP BY o.lead_id
+),
+latest_profession AS (
+  SELECT DISTINCT ON (o.lead_id)
+    o.lead_id,
+    NULLIF(BTRIM(q.answer), '') AS latest_profession
+  FROM opt_ins o
+  JOIN opt_in_question_answers q
+    ON q.opt_in_id = o.id
+  WHERE o.clerk_org_id = :org_id
+    AND LOWER(BTRIM(q.question)) = LOWER('What do you do for work?')
+    AND NULLIF(BTRIM(q.answer), '') IS NOT NULL
+  ORDER BY
+    o.lead_id,
+    COALESCE(q.created_at, o.created_at) DESC,
+    o.created_at DESC,
+    o.id DESC,
+    q.id DESC
+),
+latest_employment_status AS (
+  SELECT DISTINCT ON (o.lead_id)
+    o.lead_id,
+    NULLIF(BTRIM(q.answer), '') AS latest_employment_status
+  FROM opt_ins o
+  JOIN opt_in_question_answers q
+    ON q.opt_in_id = o.id
+  WHERE o.clerk_org_id = :org_id
+    AND LOWER(BTRIM(q.question)) = LOWER('What is your employment status?')
+    AND NULLIF(BTRIM(q.answer), '') IS NOT NULL
+  ORDER BY
+    o.lead_id,
+    COALESCE(q.created_at, o.created_at) DESC,
+    o.created_at DESC,
+    o.id DESC,
+    q.id DESC
 ),
 appointment_rows AS (
   SELECT
@@ -631,6 +678,8 @@ snapshot_metrics AS (
     ) AS missing_referrer,
     COALESCE(qa.opt_in_answer_count, 0) > 0 AS has_form_answers,
     COALESCE(qa.opt_in_answer_count, 0) AS opt_in_answer_count,
+    lp.latest_profession,
+    les.latest_employment_status,
 
     COALESCE(ap.appointment_count, 0) AS appointment_count,
     COALESCE(ap.past_appointment_count, 0) AS past_appointment_count,
@@ -705,6 +754,10 @@ snapshot_metrics AS (
     ON ta.lead_id = bl.lead_id
   LEFT JOIN question_answer_agg qa
     ON qa.lead_id = bl.lead_id
+  LEFT JOIN latest_profession lp
+    ON lp.lead_id = bl.lead_id
+  LEFT JOIN latest_employment_status les
+    ON les.lead_id = bl.lead_id
   LEFT JOIN appointment_agg ap
     ON ap.lead_id = bl.lead_id
   LEFT JOIN fathom_agg fa
@@ -833,6 +886,8 @@ INSERT INTO diagnostic_lead_snapshot (
   latest_opt_in_source,
   first_provider_form_name,
   latest_provider_form_name,
+  latest_profession,
+  latest_employment_status,
   first_utm_source,
   first_utm_medium,
   first_utm_campaign,
@@ -949,6 +1004,8 @@ SELECT
   fs.latest_opt_in_source,
   fs.first_provider_form_name,
   fs.latest_provider_form_name,
+  fs.latest_profession,
+  fs.latest_employment_status,
   fs.first_utm_source,
   fs.first_utm_medium,
   fs.first_utm_campaign,
@@ -1270,6 +1327,20 @@ FROM flag_nulls
 HAVING COUNT(*) > 0
 
 UNION ALL
+SELECT 'blank_latest_profession', COUNT(*)::int
+FROM snapshot_rows
+WHERE latest_profession IS NOT NULL
+  AND NULLIF(BTRIM(latest_profession), '') IS NULL
+HAVING COUNT(*) > 0
+
+UNION ALL
+SELECT 'blank_latest_employment_status', COUNT(*)::int
+FROM snapshot_rows
+WHERE latest_employment_status IS NOT NULL
+  AND NULLIF(BTRIM(latest_employment_status), '') IS NULL
+HAVING COUNT(*) > 0
+
+UNION ALL
 SELECT 'wrong_org_snapshot_row', COUNT(*)::int
 FROM snapshot_rows
 WHERE clerk_org_id <> :org_id
@@ -1420,6 +1491,8 @@ def _diagnostic_database_url() -> str | None:
 
 def _ensure_schema(conn: Connection) -> None:
     conn.execute(text(CREATE_TABLE_SQL))
+    for statement in ALTER_TABLE_SQL:
+        conn.execute(text(statement))
     for statement in CREATE_INDEX_SQL:
         conn.execute(text(statement))
 

@@ -29,3 +29,8 @@ MSAQ-027,Payment provider revenue,Which payment provider collected the most reve
 MSAQ-028,Program revenue,Which program generated the most revenue?,revenue_analytics,ranking,markdown_table,"Rank programs by net collected revenue unless the user asks for gross revenue."
 MSAQ-029,Contract status,Show contract breakdown by status.,revenue_analytics,breakdown,markdown_table,"Group contracts by status."
 MSAQ-030,UTM campaign,Show UTM campaign performance by opt-ins.,acquisition_analytics,breakdown,markdown_table,"Group opt-ins by UTM campaign with opt-in count and share."
+MSAQ-031,Lead profile,Which profession generated the most leads?,lead_profile_analytics,ranking,markdown_table,"Use latest lead-level profile answer for What do you do for work?; count distinct active leads."
+MSAQ-032,Lead profile,Which profession submitted the most opt-ins?,lead_profile_analytics,ranking,markdown_table,"Use opt-in grain joined to form answers for What do you do for work?; count opt-ins."
+MSAQ-033,Lead profile,Which employment status is most common?,lead_profile_analytics,ranking,markdown_table,"Use latest lead-level profile answer for What is your employment status?; count distinct active leads."
+MSAQ-034,Lead profile,Monthly leads trend by profession.,lead_profile_analytics,monthly_trend_by_category,trend_table_with_short_insight,"Group active leads by DATE_TRUNC('month', leads.created_at) and latest profession."
+MSAQ-035,Lead profile,Monthly leads trend by employment status.,lead_profile_analytics,monthly_trend_by_category,trend_table_with_short_insight,"Group active leads by DATE_TRUNC('month', leads.created_at) and latest employment status."

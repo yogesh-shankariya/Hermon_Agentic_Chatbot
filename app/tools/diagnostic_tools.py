@@ -34,6 +34,24 @@ SUPPORTED_SOURCE_BASIS = {
     "first": "first_source",
     "last": "last_source",
 }
+SUPPORTED_PROFILE_FIELDS = {
+    "latest_profession": {
+        "column": "latest_profession",
+        "label": "Profession",
+    },
+    "latest_employment_status": {
+        "column": "latest_employment_status",
+        "label": "Employment status",
+    },
+}
+SOURCE_SNAPSHOT_SORT = (
+    "net_collected_amount DESC, signed_contract_count DESC, "
+    "completed_call_count DESC, lead_count DESC, source_name ASC"
+)
+PROFILE_SNAPSHOT_SORTS = {
+    "lead_count": "lead_count DESC, profile_value ASC",
+    "paid_lead_rate": "paid_lead_rate DESC NULLS LAST, lead_count DESC, profile_value ASC",
+}
 DEFAULT_LOOKBACK_MONTHS = 6
 MONTH_ABBREVIATIONS = (
     "Jan",
@@ -461,6 +479,24 @@ def _source_column(source_basis: str) -> str:
     if basis not in SUPPORTED_SOURCE_BASIS:
         raise ValueError("source_basis must be one of: first, last.")
     return SUPPORTED_SOURCE_BASIS[basis]
+
+
+def _profile_field_metadata(profile_field: str) -> dict[str, str]:
+    field = str(profile_field or "").strip().lower()
+    if field not in SUPPORTED_PROFILE_FIELDS:
+        allowed = ", ".join(SUPPORTED_PROFILE_FIELDS)
+        raise ValueError(f"profile_field must be one of: {allowed}.")
+    return {"field": field, **SUPPORTED_PROFILE_FIELDS[field]}
+
+
+def _profile_order_clause(sort_by: str | None) -> tuple[str, str]:
+    requested_sort = str(sort_by or "lead_count").strip().lower()
+    if requested_sort in {"conversion", "paid_conversion", "converts_best"}:
+        requested_sort = "paid_lead_rate"
+    if requested_sort not in PROFILE_SNAPSHOT_SORTS:
+        allowed = ", ".join(PROFILE_SNAPSHOT_SORTS)
+        raise ValueError(f"sort_by must be one of: {allowed}.")
+    return requested_sort, PROFILE_SNAPSHOT_SORTS[requested_sort]
 
 
 def _json_response(payload: dict[str, Any]) -> str:
@@ -1659,6 +1695,7 @@ WITH scoped AS (
     COALESCE(NULLIF(BTRIM(dls.{source_column}), ''), 'Unknown') AS source_name,
     dls.source_confidence AS source_confidence,
     dls.appointment_count AS appointment_count,
+    CASE WHEN dls.appointment_count > 0 THEN 1 ELSE 0 END AS booked_lead_count,
     dls.completed_call_count AS completed_call_count,
     dls.no_show_count AS no_show_count,
     dls.signed_contract_count AS signed_contract_count,
@@ -1680,6 +1717,10 @@ source_rollup AS (
     source_name,
     COUNT(*)::int AS lead_count,
     COALESCE(SUM(appointment_count), 0)::int AS appointment_count,
+    COALESCE(SUM(booked_lead_count), 0)::int AS booked_lead_count,
+    COUNT(*) FILTER (WHERE completed_call_count > 0)::int AS completed_call_lead_count,
+    COUNT(*) FILTER (WHERE signed_contract_count > 0)::int AS signed_lead_count,
+    COUNT(*) FILTER (WHERE paid_payment_count > 0)::int AS paid_lead_count,
     COALESCE(SUM(completed_call_count), 0)::int AS completed_call_count,
     COALESCE(SUM(no_show_count), 0)::int AS no_show_count,
     COALESCE(SUM(signed_contract_count), 0)::int AS signed_contract_count,
@@ -1702,6 +1743,10 @@ scored AS (
     source_name,
     lead_count,
     appointment_count,
+    booked_lead_count,
+    completed_call_lead_count,
+    signed_lead_count,
+    paid_lead_count,
     completed_call_count,
     no_show_count,
     signed_contract_count,
@@ -1716,7 +1761,16 @@ scored AS (
     unknown_source_leads,
     multiple_source_leads,
     revenue_without_source_leads,
-    ROUND(100.0 * appointment_count / NULLIF(lead_count, 0), 2) AS lead_to_appointment_rate,
+    ROUND(100.0 * booked_lead_count / NULLIF(lead_count, 0), 2)
+      AS lead_to_booked_call_rate,
+    ROUND(100.0 * completed_call_lead_count / NULLIF(lead_count, 0), 2)
+      AS lead_to_completed_call_rate,
+    ROUND(100.0 * signed_lead_count / NULLIF(completed_call_lead_count, 0), 2)
+      AS completed_lead_to_signed_lead_rate,
+    ROUND(100.0 * paid_lead_count / NULLIF(signed_lead_count, 0), 2)
+      AS signed_lead_to_paid_lead_rate,
+    ROUND(100.0 * paid_lead_count / NULLIF(lead_count, 0), 2) AS paid_lead_rate,
+    ROUND(1.0 * appointment_count / NULLIF(lead_count, 0), 2) AS appointment_records_per_lead,
     ROUND(100.0 * completed_call_count / NULLIF(appointment_count, 0), 2) AS appointment_to_completed_rate,
     ROUND(100.0 * signed_contract_count / NULLIF(completed_call_count, 0), 2) AS completed_to_signed_rate,
     ROUND(100.0 * paid_payment_count / NULLIF(signed_contract_count, 0), 2) AS signed_to_paid_rate,
@@ -1729,6 +1783,10 @@ SELECT
   source_name,
   lead_count,
   appointment_count,
+  booked_lead_count,
+  completed_call_lead_count,
+  signed_lead_count,
+  paid_lead_count,
   completed_call_count,
   no_show_count,
   signed_contract_count,
@@ -1737,7 +1795,13 @@ SELECT
   refund_amount,
   net_collected_amount,
   outstanding_amount,
-  lead_to_appointment_rate,
+  COUNT(*) OVER()::int AS total_distinct_sources,
+  lead_to_booked_call_rate,
+  lead_to_completed_call_rate,
+  completed_lead_to_signed_lead_rate,
+  signed_lead_to_paid_lead_rate,
+  paid_lead_rate,
+  appointment_records_per_lead,
   appointment_to_completed_rate,
   completed_to_signed_rate,
   signed_to_paid_rate,
@@ -1756,6 +1820,70 @@ ORDER BY
   completed_call_count DESC,
   lead_count DESC,
   source_name ASC
+LIMIT :limit
+"""
+
+PROFILE_SNAPSHOT_SQL_TEMPLATE = """
+WITH scoped AS (
+  SELECT
+    COALESCE(NULLIF(BTRIM(dls.{profile_column}), ''), 'Not provided') AS profile_value,
+    dls.appointment_count AS appointment_count,
+    dls.completed_call_count AS completed_call_count,
+    dls.signed_contract_count AS signed_contract_count,
+    dls.paid_payment_count AS paid_payment_count,
+    dls.net_collected_amount AS net_collected_amount
+  FROM diagnostic_lead_snapshot dls
+  WHERE dls.clerk_org_id = :org_id
+    AND dls.lead_created_at >= CAST(:start_date AS date)
+    AND dls.lead_created_at < CAST(:end_date AS date)
+),
+profile_rollup AS (
+  SELECT
+    profile_value,
+    COUNT(*)::int AS lead_count,
+    COUNT(*) FILTER (WHERE appointment_count > 0)::int AS booked_lead_count,
+    COUNT(*) FILTER (WHERE completed_call_count > 0)::int AS completed_call_lead_count,
+    COUNT(*) FILTER (WHERE signed_contract_count > 0)::int AS signed_lead_count,
+    COUNT(*) FILTER (WHERE paid_payment_count > 0)::int AS paid_lead_count,
+    COALESCE(SUM(net_collected_amount), 0)::numeric(12,2) AS net_collected_amount
+  FROM scoped
+  GROUP BY profile_value
+),
+scored AS (
+  SELECT
+    profile_value,
+    lead_count,
+    booked_lead_count,
+    completed_call_lead_count,
+    signed_lead_count,
+    paid_lead_count,
+    net_collected_amount,
+    ROUND(100.0 * booked_lead_count / NULLIF(lead_count, 0), 2)
+      AS lead_to_booked_call_rate,
+    ROUND(100.0 * signed_lead_count / NULLIF(completed_call_lead_count, 0), 2)
+      AS completed_lead_to_signed_lead_rate,
+    ROUND(100.0 * paid_lead_count / NULLIF(signed_lead_count, 0), 2)
+      AS signed_lead_to_paid_lead_rate,
+    ROUND(100.0 * paid_lead_count / NULLIF(lead_count, 0), 2) AS paid_lead_rate,
+    ROUND(net_collected_amount / NULLIF(lead_count, 0), 2) AS net_collected_per_lead
+  FROM profile_rollup
+)
+SELECT
+  profile_value,
+  lead_count,
+  booked_lead_count,
+  completed_call_lead_count,
+  signed_lead_count,
+  paid_lead_count,
+  net_collected_amount,
+  lead_to_booked_call_rate,
+  completed_lead_to_signed_lead_rate,
+  signed_lead_to_paid_lead_rate,
+  paid_lead_rate,
+  net_collected_per_lead
+FROM scored
+ORDER BY
+  {order_clause}
 LIMIT :limit
 """
 
@@ -1807,7 +1935,6 @@ totals AS (
          OR has_unknown_source
          OR has_orphaned_first_source_id
          OR has_orphaned_last_source_id
-         OR has_multiple_sources
     )::int AS issue_leads
   FROM scoped
 ),
@@ -1863,7 +1990,6 @@ source_quality AS (
          OR has_unknown_source
          OR has_orphaned_first_source_id
          OR has_orphaned_last_source_id
-         OR has_multiple_sources
     )::int AS issue_leads
   FROM scoped
   GROUP BY source_name
@@ -1958,6 +2084,7 @@ WITH period_rows AS (
   SELECT
     'current' AS period_name,
     dls.appointment_count AS appointment_count,
+    CASE WHEN dls.appointment_count > 0 THEN 1 ELSE 0 END AS booked_lead_count,
     dls.completed_call_count AS completed_call_count,
     dls.no_show_count AS no_show_count,
     dls.signed_contract_count AS signed_contract_count,
@@ -1974,6 +2101,7 @@ WITH period_rows AS (
   SELECT
     'previous' AS period_name,
     dls.appointment_count AS appointment_count,
+    CASE WHEN dls.appointment_count > 0 THEN 1 ELSE 0 END AS booked_lead_count,
     dls.completed_call_count AS completed_call_count,
     dls.no_show_count AS no_show_count,
     dls.signed_contract_count AS signed_contract_count,
@@ -1992,6 +2120,7 @@ period_totals AS (
     period_name,
     COUNT(*)::int AS lead_count,
     COALESCE(SUM(appointment_count), 0)::int AS appointment_count,
+    COALESCE(SUM(booked_lead_count), 0)::int AS booked_lead_count,
     COALESCE(SUM(completed_call_count), 0)::int AS completed_call_count,
     COALESCE(SUM(no_show_count), 0)::int AS no_show_count,
     COALESCE(SUM(signed_contract_count), 0)::int AS signed_contract_count,
@@ -2000,8 +2129,10 @@ period_totals AS (
     COALESCE(SUM(refund_amount), 0)::numeric(12,2) AS refund_amount,
     COALESCE(SUM(net_collected_amount), 0)::numeric(12,2) AS net_collected_amount,
     COALESCE(SUM(outstanding_amount), 0)::numeric(12,2) AS outstanding_amount,
-    ROUND(100.0 * COALESCE(SUM(appointment_count), 0) / NULLIF(COUNT(*), 0), 2)
-      AS lead_to_appointment_rate,
+    ROUND(100.0 * COALESCE(SUM(booked_lead_count), 0) / NULLIF(COUNT(*), 0), 2)
+      AS lead_to_booked_call_rate,
+    ROUND(1.0 * COALESCE(SUM(appointment_count), 0) / NULLIF(COUNT(*), 0), 2)
+      AS appointment_records_per_lead,
     ROUND(100.0 * COALESCE(SUM(completed_call_count), 0)
       / NULLIF(SUM(appointment_count), 0), 2) AS appointment_to_completed_rate,
     ROUND(100.0 * COALESCE(SUM(signed_contract_count), 0)
@@ -2021,6 +2152,10 @@ pivoted AS (
       AS current_appointment_count,
     COALESCE(MAX(CASE WHEN period_name = 'previous' THEN appointment_count END), 0)
       AS previous_appointment_count,
+    COALESCE(MAX(CASE WHEN period_name = 'current' THEN booked_lead_count END), 0)
+      AS current_booked_lead_count,
+    COALESCE(MAX(CASE WHEN period_name = 'previous' THEN booked_lead_count END), 0)
+      AS previous_booked_lead_count,
     COALESCE(MAX(CASE WHEN period_name = 'current' THEN completed_call_count END), 0)
       AS current_completed_call_count,
     COALESCE(MAX(CASE WHEN period_name = 'previous' THEN completed_call_count END), 0)
@@ -2053,10 +2188,14 @@ pivoted AS (
       AS current_outstanding_amount,
     COALESCE(MAX(CASE WHEN period_name = 'previous' THEN outstanding_amount END), 0)
       AS previous_outstanding_amount,
-    MAX(CASE WHEN period_name = 'current' THEN lead_to_appointment_rate END)
-      AS current_lead_to_appointment_rate,
-    MAX(CASE WHEN period_name = 'previous' THEN lead_to_appointment_rate END)
-      AS previous_lead_to_appointment_rate,
+    MAX(CASE WHEN period_name = 'current' THEN lead_to_booked_call_rate END)
+      AS current_lead_to_booked_call_rate,
+    MAX(CASE WHEN period_name = 'previous' THEN lead_to_booked_call_rate END)
+      AS previous_lead_to_booked_call_rate,
+    MAX(CASE WHEN period_name = 'current' THEN appointment_records_per_lead END)
+      AS current_appointment_records_per_lead,
+    MAX(CASE WHEN period_name = 'previous' THEN appointment_records_per_lead END)
+      AS previous_appointment_records_per_lead,
     MAX(CASE WHEN period_name = 'current' THEN appointment_to_completed_rate END)
       AS current_appointment_to_completed_rate,
     MAX(CASE WHEN period_name = 'previous' THEN appointment_to_completed_rate END)
@@ -2089,6 +2228,7 @@ LATERAL (
   VALUES
     ('lead_count', current_lead_count::numeric, previous_lead_count::numeric),
     ('appointment_count', current_appointment_count::numeric, previous_appointment_count::numeric),
+    ('booked_lead_count', current_booked_lead_count::numeric, previous_booked_lead_count::numeric),
     (
       'completed_call_count',
       current_completed_call_count::numeric,
@@ -2118,9 +2258,14 @@ LATERAL (
       previous_outstanding_amount::numeric
     ),
     (
-      'lead_to_appointment_rate',
-      current_lead_to_appointment_rate::numeric,
-      previous_lead_to_appointment_rate::numeric
+      'lead_to_booked_call_rate',
+      current_lead_to_booked_call_rate::numeric,
+      previous_lead_to_booked_call_rate::numeric
+    ),
+    (
+      'appointment_records_per_lead',
+      current_appointment_records_per_lead::numeric,
+      previous_appointment_records_per_lead::numeric
     ),
     (
       'appointment_to_completed_rate',
@@ -2494,13 +2639,27 @@ def get_diagnostic_source_snapshot(
             "limit": safe_limit,
         }
         rows = _query_records(sql, params, max_rows=safe_limit)
+        total_distinct_sources = len(rows)
+        if rows:
+            total_distinct_sources = (
+                _int_or_none(rows[0].get("total_distinct_sources")) or len(rows)
+            )
+        returned_source_count = len(rows)
         return _json_ready(
             {
                 "status": "success",
                 "tool": "get_diagnostic_source_snapshot",
                 "scope_note": SCOPE_NOTE,
-                "row_count": len(rows),
+                "row_count": returned_source_count,
                 "source_basis": str(source_basis or "first").strip().lower(),
+                "requested_limit": safe_limit,
+                "returned_source_count": returned_source_count,
+                "total_distinct_sources": total_distinct_sources,
+                "is_truncated": total_distinct_sources > returned_source_count,
+                "source_sort": SOURCE_SNAPSHOT_SORT,
+                "source_selection_note": (
+                    "Rows are limited by the requested limit and sorted by lifetime net collected."
+                ),
                 "period": _period_metadata(
                     periods["current_start_date"],
                     periods["current_end_date"],
@@ -2511,6 +2670,62 @@ def get_diagnostic_source_snapshot(
         )
     except Exception as exc:  # noqa: BLE001 - public tool payloads should stay structured.
         return _error_payload("get_diagnostic_source_snapshot", exc)
+
+
+def get_diagnostic_profile_snapshot(
+    org_id: str | None = None,
+    current_start_date: str | None = None,
+    current_end_date: str | None = None,
+    profile_field: str = "latest_profession",
+    limit: int = 10,
+    sort_by: str = "lead_count",
+) -> dict[str, Any]:
+    try:
+        clean_org_id = _default_org_id(org_id)
+        profile_metadata = _profile_field_metadata(profile_field)
+        clean_sort, order_clause = _profile_order_clause(sort_by)
+        periods = _default_periods(clean_org_id, current_start_date, current_end_date, None, None)
+        safe_limit = _safe_limit(limit)
+        sql = PROFILE_SNAPSHOT_SQL_TEMPLATE.format(
+            profile_column=profile_metadata["column"],
+            order_clause=order_clause,
+        )
+        params = {
+            "org_id": clean_org_id,
+            "start_date": periods["current_start_date"],
+            "end_date": periods["current_end_date"],
+            "limit": safe_limit,
+        }
+        rows = _query_records(sql, params, max_rows=safe_limit)
+        return _json_ready(
+            {
+                "status": "success",
+                "tool": "get_diagnostic_profile_snapshot",
+                "scope_note": SCOPE_NOTE,
+                "row_count": len(rows),
+                "profile_field": profile_metadata["field"],
+                "profile_label": profile_metadata["label"],
+                "profile_basis_note": (
+                    "Rows use latest lead-level opt-in profile answers from "
+                    "diagnostic_lead_snapshot, not exact opt-in submission counts."
+                ),
+                "requested_limit": safe_limit,
+                "sort_by": clean_sort,
+                "profile_sort": order_clause,
+                "minimum_sample_caveat": (
+                    "Conversion-rate rankings are directional for profile groups "
+                    "with fewer than 10 leads."
+                ),
+                "period": _period_metadata(
+                    periods["current_start_date"],
+                    periods["current_end_date"],
+                    periods["period_anchor_date"],
+                ),
+                "rows": rows,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 - public tool payloads should stay structured.
+        return _error_payload("get_diagnostic_profile_snapshot", exc)
 
 
 def get_diagnostic_source_quality_snapshot(
@@ -2812,6 +3027,35 @@ def _get_diagnostic_source_snapshot_tool(
         return _error_response("get_diagnostic_source_snapshot", exc)
 
 
+def _get_diagnostic_profile_snapshot_tool(
+    org_id: str | None = None,
+    current_start_date: str | None = None,
+    current_end_date: str | None = None,
+    profile_field: str = "latest_profession",
+    limit: int = 10,
+    sort_by: str = "lead_count",
+) -> str:
+    """Return profile breakdown evidence from diagnostic_lead_snapshot.
+
+    profile_field must be latest_profession or latest_employment_status. Dates
+    use lead_created_at cohort logic. Rows are lead-level, not opt-in-level.
+    """
+
+    try:
+        return _json_response(
+            get_diagnostic_profile_snapshot(
+                org_id=org_id,
+                current_start_date=current_start_date,
+                current_end_date=current_end_date,
+                profile_field=profile_field,
+                limit=limit,
+                sort_by=sort_by,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - tool output should stay JSON.
+        return _error_response("get_diagnostic_profile_snapshot", exc)
+
+
 def _get_diagnostic_source_quality_snapshot_tool(
     org_id: str | None = None,
     current_start_date: str | None = None,
@@ -2907,6 +3151,9 @@ get_diagnostic_funnel_snapshot_tool = tool("get_diagnostic_funnel_snapshot")(
 get_diagnostic_source_snapshot_tool = tool("get_diagnostic_source_snapshot")(
     _get_diagnostic_source_snapshot_tool
 )
+get_diagnostic_profile_snapshot_tool = tool("get_diagnostic_profile_snapshot")(
+    _get_diagnostic_profile_snapshot_tool
+)
 get_diagnostic_source_quality_snapshot_tool = tool("get_diagnostic_source_quality_snapshot")(
     _get_diagnostic_source_quality_snapshot_tool
 )
@@ -2920,6 +3167,7 @@ get_diagnostic_text_reason_snapshot_tool = tool("get_diagnostic_text_reason_snap
 DIAGNOSTIC_TOOLS = [
     get_diagnostic_funnel_snapshot_tool,
     get_diagnostic_source_snapshot_tool,
+    get_diagnostic_profile_snapshot_tool,
     get_diagnostic_source_quality_snapshot_tool,
     get_diagnostic_business_change_snapshot_tool,
     get_diagnostic_text_reason_snapshot_tool,

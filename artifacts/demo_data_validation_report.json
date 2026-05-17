@@ -1,9 +1,9 @@
 {
   "org_id": "org_dummy_client_demo_001",
-  "started_at": "2026-05-16T10:05:02.915379+00:00",
-  "finished_at": "2026-05-16T10:05:53.082246+00:00",
-  "duration_seconds": 50.167,
-  "overall_status": "FAILED",
+  "started_at": "2026-05-16T13:25:33.764840+00:00",
+  "finished_at": "2026-05-16T13:26:17.719162+00:00",
+  "duration_seconds": 43.954,
+  "overall_status": "PASSED",
   "checks": [
     {
       "name": "sales_statuses_exists",
@@ -600,10 +600,10 @@
     {
       "name": "answers_after_opt_in",
       "severity": "critical",
-      "passed": false,
+      "passed": true,
       "expected": "0 offending rows",
-      "actual": "1250 offending rows",
-      "details": "by_question: Are you the final decision maker?=107, How soon do you want to get started?=119, What budget range are you comfortable with?=111, What do you do for work?=143, What is your biggest challenge right now?=123, What is your current experience level?=115, What is your employment status?=139, What is your main goal?=127, Which city or region are you based in?=131, Which country are you from?=135"
+      "actual": "0 offending rows",
+      "details": null
     },
     {
       "name": "strict_fathom_coverage",
@@ -776,10 +776,10 @@
     {
       "name": "diagnostic_text_unknown_reason_threshold",
       "severity": "high",
-      "passed": false,
+      "passed": true,
       "expected": "< 5%",
-      "actual": "19.753%",
-      "details": "unknown_by_scenario: paid_converted=80"
+      "actual": "0%",
+      "details": null
     },
     {
       "name": "diagnostic_text_scenario_consistency",
@@ -896,10 +896,10 @@
     {
       "name": "unsafe_payloads_urls_and_provider_ids",
       "severity": "high",
-      "passed": false,
+      "passed": true,
       "expected": "0 offending rows",
-      "actual": "202 offending rows",
-      "details": "breakdown: payments_external_id=190, refunds_external_id=12"
+      "actual": "0 offending rows",
+      "details": null
     },
     {
       "name": "synthetic_lead_identity",
@@ -1006,32 +1006,7 @@
       "details": null
     }
   ],
-  "failed_checks": [
-    {
-      "name": "answers_after_opt_in",
-      "severity": "critical",
-      "passed": false,
-      "expected": "0 offending rows",
-      "actual": "1250 offending rows",
-      "details": "by_question: Are you the final decision maker?=107, How soon do you want to get started?=119, What budget range are you comfortable with?=111, What do you do for work?=143, What is your biggest challenge right now?=123, What is your current experience level?=115, What is your employment status?=139, What is your main goal?=127, Which city or region are you based in?=131, Which country are you from?=135"
-    },
-    {
-      "name": "diagnostic_text_unknown_reason_threshold",
-      "severity": "high",
-      "passed": false,
-      "expected": "< 5%",
-      "actual": "19.753%",
-      "details": "unknown_by_scenario: paid_converted=80"
-    },
-    {
-      "name": "unsafe_payloads_urls_and_provider_ids",
-      "severity": "high",
-      "passed": false,
-      "expected": "0 offending rows",
-      "actual": "202 offending rows",
-      "details": "breakdown: payments_external_id=190, refunds_external_id=12"
-    }
-  ],
+  "failed_checks": [],
   "row_counts": {
     "sales_statuses": 10,
     "marketing_sources": 10,

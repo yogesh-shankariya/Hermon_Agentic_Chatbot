@@ -384,12 +384,13 @@ diagnostic_tools = _load_diagnostic_tools_module()
 
 
 class DiagnosticToolLayerTests(unittest.TestCase):
-    def test_exports_five_diagnostic_tools(self):
+    def test_exports_six_diagnostic_tools(self):
         self.assertEqual(
             [tool.name for tool in diagnostic_tools.DIAGNOSTIC_TOOLS],
             [
                 "get_diagnostic_funnel_snapshot",
                 "get_diagnostic_source_snapshot",
+                "get_diagnostic_profile_snapshot",
                 "get_diagnostic_source_quality_snapshot",
                 "get_diagnostic_business_change_snapshot",
                 "get_diagnostic_text_reason_snapshot",
@@ -397,6 +398,7 @@ class DiagnosticToolLayerTests(unittest.TestCase):
         )
         self.assertTrue(callable(diagnostic_tools.get_diagnostic_funnel_snapshot))
         self.assertTrue(callable(diagnostic_tools.get_diagnostic_source_snapshot))
+        self.assertTrue(callable(diagnostic_tools.get_diagnostic_profile_snapshot))
         self.assertTrue(callable(diagnostic_tools.get_diagnostic_source_quality_snapshot))
         self.assertTrue(callable(diagnostic_tools.get_diagnostic_business_change_snapshot))
         self.assertTrue(callable(diagnostic_tools.get_diagnostic_text_reason_snapshot))
@@ -407,6 +409,7 @@ class DiagnosticToolLayerTests(unittest.TestCase):
 
         init_text = (APP_DIR / "tools" / "__init__.py").read_text(encoding="utf-8")
         self.assertIn("DIAGNOSTIC_TOOLS", init_text)
+        self.assertIn("get_diagnostic_profile_snapshot_tool", init_text)
         self.assertIn("get_diagnostic_business_change_snapshot_tool", init_text)
         self.assertIn("get_diagnostic_text_reason_snapshot_tool", init_text)
 
@@ -664,12 +667,62 @@ class DiagnosticToolLayerTests(unittest.TestCase):
         self.assertIn("include_issue_combinations = true", prompt_text)
         self.assertIn("One lead can have multiple issues, so this table does not sum to", prompt_text)
         self.assertIn("| Individual issue | Leads with this issue | % of stuck leads |", prompt_text)
-        self.assertIn("coverage note", prompt_text.lower())
+        self.assertNotIn("coverage note", prompt_text.lower())
+        self.assertIn("Do not add a standalone coverage section by default", prompt_text)
+        self.assertIn("Prefer concise bullet points over paragraph blocks", prompt_text)
         self.assertIn("format them with the `€` symbol", prompt_text)
         self.assertIn("€1,234.56", prompt_text)
         self.assertIn("For business-change or period-comparison questions, prefer a table", prompt_text)
+        self.assertIn("Broad Overview Answer Format", prompt_text)
+        self.assertIn("Use this table-led structure only for broad overview questions", prompt_text)
+        self.assertIn("Do not use this broad-overview format for funnel-loss questions", prompt_text)
+        self.assertIn('get_diagnostic_source_snapshot with source_basis = "first" and limit = 10', prompt_text)
+        self.assertIn("get_diagnostic_profile_snapshot", prompt_text)
+        self.assertIn("Profile Conversion Diagnostics", prompt_text)
+        self.assertIn("Which profession converts best?", prompt_text)
+        self.assertIn("Which profession should we focus on?", prompt_text)
+        self.assertIn("Why are Business Owner leads not converting?", prompt_text)
+        self.assertIn("Monthly leads trend by profession.", prompt_text)
+        self.assertIn('profile_field = "latest_profession"', prompt_text)
+        self.assertIn('profile_field = "latest_employment_status"', prompt_text)
+        self.assertIn('sort_by = "paid_lead_rate"', prompt_text)
+        self.assertNotIn(
+            'get_diagnostic_profile_snapshot with profile_field = "latest_profession" and sort_by = "lead_count"',
+            prompt_text,
+        )
+        self.assertIn("Based on the latest lead-level opt-in profile answer", prompt_text)
+        self.assertIn("Do not describe these as exact opt-in submission counts", prompt_text)
+        self.assertIn("Funnel view:", prompt_text)
+        self.assertIn("Step conversion view:", prompt_text)
+        self.assertIn("Source view: top 10 first sources, sorted by lifetime net collected", prompt_text)
+        self.assertIn(
+            "| Step | Leads reached | Dropped from previous | Drop rate from previous | Conversion from previous |",
+            prompt_text,
+        )
+        self.assertIn(
+            "| Source | Leads | Booked leads | Completed-call leads | Signed-contract leads | Paid leads | Lifetime net collected | What it suggests |",
+            prompt_text,
+        )
+        self.assertIn("| Source | Leads | Completed-call records | Signed-contract records | Paid payment records | Lifetime net collected | What it suggests |", prompt_text)
+        self.assertIn("use `drop_rate_from_previous` and `conversion_rate_from_previous`", prompt_text)
+        self.assertIn("the lead-to-booked-call rate is 81.0%", prompt_text)
+        self.assertIn("appointment records per lead", prompt_text)
+        self.assertIn("If `is_truncated = true`", prompt_text)
+        self.assertIn("Do not say \"all sources\" if the source rows are limited", prompt_text)
+        self.assertIn("total_distinct_sources <= returned_source_count", prompt_text)
+        self.assertIn("Do not call multiple-source leads source-quality failures.", prompt_text)
+        self.assertIn("CRM-side first-source reporting rather than ad attribution", prompt_text)
+        self.assertIn("do not describe them as \"top sources\"", prompt_text)
+        self.assertIn("Do not call it paid leads", prompt_text)
+        self.assertIn("Source interpretation text must be supported by metrics returned by the tool", prompt_text)
+        self.assertIn(
+            "Revenue figures here are cohort-based: they show lifetime net collected revenue for leads created in the selected period, not true payment-period revenue.",
+            prompt_text,
+        )
         self.assertIn("Business Attention Answer Format", prompt_text)
         self.assertIn("| Priority | Focus area | Evidence | Why it matters | Recommended action |", prompt_text)
+        self.assertIn("For general business attention questions without a department", prompt_text)
+        self.assertIn("Keep this priority-table format for narrower action questions", prompt_text)
         self.assertIn("Do not force every returned metric into the table.", prompt_text)
         self.assertIn("If there is only one clear focus area, a short answer without a table is fine.", prompt_text)
         self.assertIn("Do not add separate confidence or data-quality sections", prompt_text)
@@ -685,12 +738,13 @@ class DiagnosticToolLayerTests(unittest.TestCase):
         self.assertNotIn("| Drop point | Net movement drop", prompt_text)
         self.assertNotIn("Where prior-step non-converters are now:", prompt_text)
         funnel_format = prompt_text.split("For funnel questions, use this structure:", 1)[1].split(
-            "## Required Answer Format",
+            "## Broad Overview Answer Format",
             1,
         )[0]
         self.assertIn("One lead can have multiple issues", funnel_format)
         self.assertNotIn("reason combination distribution table", funnel_format.lower())
         self.assertNotIn("Issue combination", funnel_format)
+        self.assertNotIn("Funnel view / Step conversion view / Source view", funnel_format)
         non_funnel_format = prompt_text.split("For non-funnel diagnostic questions, use this structure:", 1)[
             1
         ].split("Rules:", 1)[0]
@@ -758,6 +812,71 @@ class DiagnosticToolLayerTests(unittest.TestCase):
         self.assertEqual(result["row_count"], 1)
         json.dumps(result)
 
+    def test_source_snapshot_returns_limit_and_truncation_metadata(self):
+        rows = [
+            {"source_name": "A", "total_distinct_sources": 3},
+            {"source_name": "B", "total_distinct_sources": 3},
+            {"source_name": "C", "total_distinct_sources": 3},
+        ]
+        fake_db = FakeDb(rows=rows)
+
+        with patch.object(diagnostic_tools, "get_db", return_value=fake_db):
+            result = diagnostic_tools.get_diagnostic_source_snapshot(org_id="org_1", limit=2)
+
+        self.assertEqual(result["requested_limit"], 2)
+        self.assertEqual(result["returned_source_count"], 2)
+        self.assertEqual(result["total_distinct_sources"], 3)
+        self.assertTrue(result["is_truncated"])
+        self.assertEqual(
+            result["source_sort"],
+            "net_collected_amount DESC, signed_contract_count DESC, "
+            "completed_call_count DESC, lead_count DESC, source_name ASC",
+        )
+        self.assertEqual(
+            result["source_selection_note"],
+            "Rows are limited by the requested limit and sorted by lifetime net collected.",
+        )
+
+    def test_profile_snapshot_returns_lead_level_profile_payload(self):
+        rows = [
+            {
+                "profile_value": "Founder",
+                "lead_count": 12,
+                "paid_lead_rate": Decimal("25.00"),
+            }
+        ]
+        fake_db = FakeDb(rows=rows)
+
+        with patch.object(diagnostic_tools, "get_db", return_value=fake_db):
+            result = diagnostic_tools.get_diagnostic_profile_snapshot(
+                org_id="org_1",
+                profile_field="latest_profession",
+                sort_by="paid_lead_rate",
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["tool"], "get_diagnostic_profile_snapshot")
+        self.assertEqual(result["profile_field"], "latest_profession")
+        self.assertEqual(result["profile_label"], "Profession")
+        self.assertEqual(result["sort_by"], "paid_lead_rate")
+        self.assertIn("latest lead-level opt-in profile answers", result["profile_basis_note"])
+        self.assertIn("fewer than 10 leads", result["minimum_sample_caveat"])
+        self.assertEqual(result["rows"][0]["profile_value"], "Founder")
+        query_call = fake_db.calls[-1]
+        self.assertIn("dls.latest_profession", query_call["sql"])
+        self.assertIn("paid_lead_rate DESC NULLS LAST", query_call["sql"])
+        self.assertNotIn("opt_in_question_answers", query_call["sql"])
+
+    def test_profile_snapshot_rejects_unknown_profile_field(self):
+        result = diagnostic_tools.get_diagnostic_profile_snapshot(
+            org_id="org_1",
+            profile_field="profession",
+        )
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["tool"], "get_diagnostic_profile_snapshot")
+        self.assertIn("profile_field must be one of", result["error"])
+
     def test_source_limits_are_clamped(self):
         fake_db = FakeDb()
 
@@ -773,6 +892,53 @@ class DiagnosticToolLayerTests(unittest.TestCase):
         self.assertEqual(query_call["max_rows"], 50)
         self.assertIn("dls.last_source", query_call["sql"])
         self.assertNotIn("utm_campaign", query_call["sql"])
+
+    def test_diagnostic_sql_uses_distinct_booked_lead_metrics(self):
+        source_sql = diagnostic_tools.SOURCE_SNAPSHOT_SQL_TEMPLATE.format(
+            source_column="first_source"
+        )
+
+        self.assertIn("booked_lead_count", source_sql)
+        self.assertIn("completed_call_lead_count", source_sql)
+        self.assertIn("signed_lead_count", source_sql)
+        self.assertIn("paid_lead_count", source_sql)
+        self.assertIn("lead_to_booked_call_rate", source_sql)
+        self.assertIn("lead_to_completed_call_rate", source_sql)
+        self.assertIn("completed_lead_to_signed_lead_rate", source_sql)
+        self.assertIn("signed_lead_to_paid_lead_rate", source_sql)
+        self.assertIn("paid_lead_rate", source_sql)
+        self.assertIn("appointment_records_per_lead", source_sql)
+        self.assertIn("COUNT(*) OVER()::int AS total_distinct_sources", source_sql)
+        self.assertNotIn("lead_to_appointment_rate", source_sql)
+
+        self.assertIn("booked_lead_count", diagnostic_tools.BUSINESS_CHANGE_SQL)
+        self.assertIn("lead_to_booked_call_rate", diagnostic_tools.BUSINESS_CHANGE_SQL)
+        self.assertIn("appointment_records_per_lead", diagnostic_tools.BUSINESS_CHANGE_SQL)
+        self.assertNotIn("lead_to_appointment_rate", diagnostic_tools.BUSINESS_CHANGE_SQL)
+
+        profile_sql = diagnostic_tools.PROFILE_SNAPSHOT_SQL_TEMPLATE.format(
+            profile_column="latest_employment_status",
+            order_clause=diagnostic_tools.PROFILE_SNAPSHOT_SORTS["paid_lead_rate"],
+        )
+        self.assertIn("dls.latest_employment_status", profile_sql)
+        self.assertIn("COUNT(*)::int AS lead_count", profile_sql)
+        self.assertIn("booked_lead_count", profile_sql)
+        self.assertIn("completed_call_lead_count", profile_sql)
+        self.assertIn("signed_lead_count", profile_sql)
+        self.assertIn("paid_lead_count", profile_sql)
+        self.assertIn("paid_lead_rate DESC NULLS LAST", profile_sql)
+        self.assertNotIn("opt_in_question_answers", profile_sql)
+
+    def test_source_quality_issue_count_excludes_multiple_source_leads(self):
+        source_quality_sql = diagnostic_tools.SOURCE_QUALITY_SQL_TEMPLATE.format(
+            source_column="first_source"
+        )
+
+        self.assertIn("has_multiple_sources)::int AS multiple_source_leads", source_quality_sql)
+        self.assertNotIn(
+            "OR has_multiple_sources\n    )::int AS issue_leads",
+            source_quality_sql,
+        )
 
     def test_source_quality_keeps_overall_row_outside_source_limit(self):
         rows = [
@@ -1208,6 +1374,14 @@ class DiagnosticToolLayerTests(unittest.TestCase):
             diagnostic_tools.STUCK_GROUP_FUNNEL_SQL,
             diagnostic_tools.SOURCE_SNAPSHOT_SQL_TEMPLATE.format(source_column="first_source"),
             diagnostic_tools.SOURCE_SNAPSHOT_SQL_TEMPLATE.format(source_column="last_source"),
+            diagnostic_tools.PROFILE_SNAPSHOT_SQL_TEMPLATE.format(
+                profile_column="latest_profession",
+                order_clause=diagnostic_tools.PROFILE_SNAPSHOT_SORTS["lead_count"],
+            ),
+            diagnostic_tools.PROFILE_SNAPSHOT_SQL_TEMPLATE.format(
+                profile_column="latest_employment_status",
+                order_clause=diagnostic_tools.PROFILE_SNAPSHOT_SORTS["paid_lead_rate"],
+            ),
             diagnostic_tools.SOURCE_QUALITY_SQL_TEMPLATE.format(source_column="first_source"),
             diagnostic_tools.SOURCE_QUALITY_SQL_TEMPLATE.format(source_column="last_source"),
             diagnostic_tools.BUSINESS_CHANGE_SQL,

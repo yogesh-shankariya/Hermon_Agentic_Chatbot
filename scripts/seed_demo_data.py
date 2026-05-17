@@ -550,6 +550,104 @@ EMPLOYMENT_STATUSES = (
     "Retired",
 )
 
+MONTHLY_PROFESSION_DISTRIBUTION = {
+    "2025-11": {
+        "Business Owner": 8,
+        "Employee": 10,
+        "Self-employed": 6,
+        "Sales or Marketing": 6,
+        "Technology": 5,
+        "Trader / Investor": 4,
+        "Healthcare": 5,
+        "Student": 6,
+        "Retired": 3,
+        "Unemployed": 2,
+    },
+    "2025-12": {
+        "Business Owner": 11,
+        "Employee": 13,
+        "Self-employed": 7,
+        "Sales or Marketing": 8,
+        "Technology": 7,
+        "Trader / Investor": 5,
+        "Healthcare": 6,
+        "Student": 7,
+        "Retired": 4,
+        "Unemployed": 2,
+    },
+    "2026-01": {
+        "Business Owner": 18,
+        "Employee": 17,
+        "Self-employed": 12,
+        "Sales or Marketing": 10,
+        "Technology": 10,
+        "Trader / Investor": 8,
+        "Healthcare": 7,
+        "Student": 7,
+        "Retired": 4,
+        "Unemployed": 2,
+    },
+    "2026-02": {
+        "Business Owner": 16,
+        "Employee": 14,
+        "Self-employed": 11,
+        "Sales or Marketing": 9,
+        "Technology": 9,
+        "Trader / Investor": 7,
+        "Healthcare": 6,
+        "Student": 5,
+        "Retired": 3,
+        "Unemployed": 2,
+    },
+    "2026-03": {
+        "Business Owner": 20,
+        "Employee": 15,
+        "Self-employed": 13,
+        "Sales or Marketing": 10,
+        "Technology": 9,
+        "Trader / Investor": 9,
+        "Healthcare": 6,
+        "Student": 4,
+        "Retired": 3,
+        "Unemployed": 1,
+    },
+    "2026-04": {
+        "Business Owner": 28,
+        "Employee": 16,
+        "Self-employed": 16,
+        "Sales or Marketing": 12,
+        "Technology": 11,
+        "Trader / Investor": 11,
+        "Healthcare": 7,
+        "Student": 4,
+        "Retired": 2,
+        "Unemployed": 1,
+    },
+}
+
+PROFESSION_DISTRIBUTION = {
+    "Business Owner": 101,
+    "Employee": 85,
+    "Self-employed": 65,
+    "Sales or Marketing": 55,
+    "Technology": 51,
+    "Trader / Investor": 44,
+    "Healthcare": 37,
+    "Student": 33,
+    "Retired": 19,
+    "Unemployed": 10,
+}
+
+EMPLOYMENT_STATUS_DISTRIBUTION = {
+    "Full-time": 170,
+    "Business Owner": 105,
+    "Self-employed": 95,
+    "Part-time": 50,
+    "Student": 35,
+    "Unemployed": 25,
+    "Retired": 20,
+}
+
 COUNTRIES_OR_REGIONS = (
     "Netherlands",
     "Belgium",
@@ -640,23 +738,51 @@ EMPLOYMENT_TO_ENUM = {
 }
 
 STORY_REASON_MAP = {
-    "converted_strong_intent": ("unknown", "unknown", False),
-    "converted_after_payment_plan": ("price_or_budget", "needs_payment_plan", False),
+    "converted_strong_intent": (
+        "already_solved",
+        "issue_already_solved",
+        False,
+        "very_high",
+        "high_quality",
+    ),
+    "converted_after_payment_plan": (
+        "price_or_budget",
+        "needs_payment_plan",
+        False,
+        "high",
+        "high_quality",
+    ),
     "completed_not_signed_partner_approval": (
         "needs_partner_approval",
         "waiting_for_partner",
         True,
+        None,
+        None,
     ),
-    "completed_not_signed_budget": ("price_or_budget", "budget_not_available", True),
-    "completed_not_signed_needs_more_time": ("timing_issue", "needs_more_time", True),
-    "signed_not_paid_payment_link_issue": ("payment_friction", "system_or_link_issue", True),
-    "signed_not_paid_payment_timing": ("payment_friction", "payment_not_completed", True),
-    "lost_low_intent": ("low_intent", "not_ready_now", True),
-    "unqualified_poor_fit": ("poor_fit", "wrong_customer_fit", True),
+    "completed_not_signed_budget": ("price_or_budget", "budget_not_available", True, None, None),
+    "completed_not_signed_needs_more_time": ("timing_issue", "needs_more_time", True, None, None),
+    "signed_not_paid_payment_link_issue": (
+        "payment_friction",
+        "system_or_link_issue",
+        True,
+        None,
+        None,
+    ),
+    "signed_not_paid_payment_timing": (
+        "payment_friction",
+        "payment_not_completed",
+        True,
+        None,
+        None,
+    ),
+    "lost_low_intent": ("low_intent", "not_ready_now", True, None, None),
+    "unqualified_poor_fit": ("poor_fit", "wrong_customer_fit", True, None, None),
     "follow_up_needs_more_information": (
         "needs_more_information",
         "needs_more_information",
         True,
+        None,
+        None,
     ),
 }
 
@@ -957,6 +1083,40 @@ def generate_monthly_dates() -> list[datetime]:
     return dates
 
 
+def _expanded_weighted_values(distribution: dict[str, int]) -> list[str]:
+    values: list[str] = []
+    for value, count in distribution.items():
+        values.extend([value] * count)
+    return values
+
+
+def generate_monthly_profession_plan() -> dict[str, list[str]]:
+    plan: dict[str, list[str]] = {}
+    for month_key, monthly_distribution in MONTHLY_PROFESSION_DISTRIBUTION.items():
+        values = _expanded_weighted_values(monthly_distribution)
+        expected_count = MONTHLY_LEAD_DISTRIBUTION[month_key]
+        if len(values) != expected_count:
+            raise RuntimeError(
+                "Internal profession distribution error for "
+                f"{month_key}: expected {expected_count}, got {len(values)}."
+            )
+        random.shuffle(values)
+        plan[month_key] = values
+    return plan
+
+
+def generate_employment_status_plan() -> list[str]:
+    values = _expanded_weighted_values(EMPLOYMENT_STATUS_DISTRIBUTION)
+    expected_count = sum(MONTHLY_LEAD_DISTRIBUTION.values())
+    if len(values) != expected_count:
+        raise RuntimeError(
+            "Internal employment status distribution error: "
+            f"expected {expected_count}, got {len(values)}."
+        )
+    random.shuffle(values)
+    return values
+
+
 def build_seed_state(org_id: str) -> SeedState:
     random.seed(RANDOM_SEED)
     state = SeedState()
@@ -1095,6 +1255,9 @@ def generate_lead_plan(state: SeedState, org_id: str) -> None:
     dates = generate_monthly_dates()
     if len(pairs) != 500 or len(dates) != 500:
         raise RuntimeError("Internal distribution error: expected exactly 500 lead inputs.")
+    profession_plan_by_month = generate_monthly_profession_plan()
+    profession_index_by_month = {month_key: 0 for month_key in profession_plan_by_month}
+    employment_status_plan = generate_employment_status_plan()
 
     first_names = (
         "Ava",
@@ -1144,6 +1307,11 @@ def generate_lead_plan(state: SeedState, org_id: str) -> None:
         first_name = choose(first_names, index)
         last_name = f"{choose(last_names, index)}{index:03d}"
         program_name = choose(tuple(program_name for program_name, _ in PROGRAMS), index)
+        month_key = created_at.strftime("%Y-%m")
+        profession_index = profession_index_by_month[month_key]
+        profession = profession_plan_by_month[month_key][profession_index]
+        profession_index_by_month[month_key] += 1
+        employment_status = employment_status_plan[index - 1]
 
         profile = LeadProfile(
             index=index,
@@ -1166,8 +1334,8 @@ def generate_lead_plan(state: SeedState, org_id: str) -> None:
             setter_id=DEMO_SETTER_ID if index % 3 else DEMO_OWNER_ID,
             next_touch_point_at=next_touch_point_at,
             next_touch_point_type=next_touch_point_type,
-            profession=choose(PROFESSIONS, index),
-            employment_status=choose(EMPLOYMENT_STATUSES, index + 2),
+            profession=profession,
+            employment_status=employment_status,
             country_or_region=choose(COUNTRIES_OR_REGIONS, index),
             city_or_region=choose(COUNTRIES_OR_REGIONS, index + 5),
             goal=choose(GOALS, index),
@@ -1278,6 +1446,9 @@ def seed_traffic_attributions(state: SeedState, org_id: str) -> None:
 
 def seed_opt_in_question_answers(state: SeedState, org_id: str) -> None:
     rows: list[dict[str, Any]] = []
+    opt_in_created_at_by_id = {
+        opt_in["id"]: opt_in["created_at"] for opt_in in state.rows["opt_ins"]
+    }
     questions = (
         ("What do you do for work?", "profession"),
         ("What is your employment status?", "employment_status"),
@@ -1292,6 +1463,7 @@ def seed_opt_in_question_answers(state: SeedState, org_id: str) -> None:
     )
     for profile in state.lead_profile_by_id.values():
         for opt_in_id in state.opt_in_ids_by_lead_id[profile.id]:
+            opt_in_created_at = opt_in_created_at_by_id[opt_in_id]
             answer_ids: list[uuid.UUID] = []
             for position, (question, attribute_name) in enumerate(questions, start=1):
                 answer_id = stable_uuid(
@@ -1307,7 +1479,7 @@ def seed_opt_in_question_answers(state: SeedState, org_id: str) -> None:
                         "question": question,
                         "answer": getattr(profile, attribute_name),
                         "position": position,
-                        "created_at": profile.created_at + timedelta(hours=1, minutes=position),
+                        "created_at": opt_in_created_at + timedelta(seconds=position * 3),
                     }
                 )
             state.question_answer_ids_by_opt_in_id[opt_in_id] = answer_ids
@@ -2007,7 +2179,7 @@ def payment_row(
         "currency": "EUR",
         "note": payment_note(status),
         "failure_reason": "Payment attempt failed in demo scenario" if status == "FAILED" else None,
-        "external_payment_id": f"demo_payment_{profile.index:03d}_{number}",
+        "external_payment_id": None,
         "billing_cycle_number": None,
         "created_by": DEMO_CREATED_BY,
         "created_at": created_at,
@@ -2051,7 +2223,7 @@ def seed_refunds(state: SeedState, org_id: str) -> None:
                 "currency": "EUR",
                 "status": "SUCCEEDED",
                 "reason": choose(refund_reasons, offset),
-                "external_refund_id": f"demo_refund_{offset:02d}",
+                "external_refund_id": None,
                 "payment_provider": payment["payment_provider"],
                 "refunded_at": refunded_at,
                 "failure_reason": None,
@@ -2070,7 +2242,13 @@ def seed_diagnostic_text_insights(state: SeedState, org_id: str) -> None:
         appointment_id = fathom["appointment_id"]
         profile = profile_for_appointment(state, appointment_id)
         template_key = state.fathom_template_by_appointment_id[appointment_id]
-        reason_category, reason_subcategory, is_blocker = STORY_REASON_MAP[template_key]
+        (
+            reason_category,
+            reason_subcategory,
+            is_blocker,
+            buying_intent_override,
+            lead_quality_override,
+        ) = STORY_REASON_MAP[template_key]
         insight_id = stable_uuid(org_id, "diagnostic_text_insights", f"fathom-{fathom['id']}")
         rows.append(
             diagnostic_insight_row(
@@ -2085,6 +2263,8 @@ def seed_diagnostic_text_insights(state: SeedState, org_id: str) -> None:
                 reason_category=reason_category,
                 reason_subcategory=reason_subcategory,
                 is_conversion_blocker=is_blocker,
+                buying_intent_level=buying_intent_override,
+                lead_quality_level=lead_quality_override,
             )
         )
         state.diagnostic_text_insight_ids_by_lead_id.setdefault(profile.id, []).append(insight_id)
@@ -2147,9 +2327,13 @@ def diagnostic_insight_row(
     reason_category: str,
     reason_subcategory: str,
     is_conversion_blocker: bool,
+    buying_intent_level: str | None = None,
+    lead_quality_level: str | None = None,
 ) -> dict[str, Any]:
     source_hash = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
-    buying_intent, lead_quality = intent_and_quality(profile.scenario)
+    default_buying_intent, default_lead_quality = intent_and_quality(profile.scenario)
+    buying_intent = buying_intent_level or default_buying_intent
+    lead_quality = lead_quality_level or default_lead_quality
     return {
         "id": insight_id,
         "clerk_org_id": org_id,
@@ -2580,6 +2764,77 @@ def run_validations(conn: Connection, org_id: str) -> list[ValidationResult]:
         validate_scalar_zero(
             conn,
             org_id,
+            "diagnostic_snapshot_exactly_one_row_per_lead",
+            snapshot_duplicate_lead_sql(),
+        ),
+        validate_count(
+            conn,
+            org_id,
+            "diagnostic_snapshot_latest_profession_populated",
+            snapshot_latest_profession_count_sql(),
+            500,
+        ),
+        validate_count(
+            conn,
+            org_id,
+            "diagnostic_snapshot_latest_employment_status_populated",
+            snapshot_latest_employment_status_count_sql(),
+            500,
+        ),
+        validate_distribution(
+            conn,
+            org_id,
+            "diagnostic_snapshot_latest_profession_distribution",
+            snapshot_latest_profession_distribution_sql(),
+            PROFESSION_DISTRIBUTION,
+        ),
+        validate_distribution(
+            conn,
+            org_id,
+            "diagnostic_snapshot_latest_profession_monthly_distribution",
+            snapshot_monthly_profession_distribution_sql(),
+            flatten_monthly_distribution(MONTHLY_PROFESSION_DISTRIBUTION),
+        ),
+        validate_distribution(
+            conn,
+            org_id,
+            "diagnostic_snapshot_latest_employment_status_distribution",
+            snapshot_latest_employment_status_distribution_sql(),
+            EMPLOYMENT_STATUS_DISTRIBUTION,
+        ),
+        validate_scalar_zero(
+            conn,
+            org_id,
+            "diagnostic_snapshot_employment_status_not_evenly_distributed",
+            snapshot_employment_status_even_distribution_sql(),
+        ),
+        validate_scalar_zero(
+            conn,
+            org_id,
+            "diagnostic_snapshot_latest_profile_no_unknown_values",
+            snapshot_latest_profile_unknown_sql(),
+        ),
+        validate_scalar_zero(
+            conn,
+            org_id,
+            "diagnostic_snapshot_profession_not_evenly_distributed",
+            snapshot_profession_even_distribution_sql(),
+        ),
+        validate_scalar_zero(
+            conn,
+            org_id,
+            "diagnostic_snapshot_latest_profile_blank_strings",
+            snapshot_latest_profile_blank_sql(),
+        ),
+        validate_scalar_zero(
+            conn,
+            org_id,
+            "diagnostic_snapshot_latest_profile_matches_answers",
+            snapshot_latest_profile_mismatch_sql(),
+        ),
+        validate_scalar_zero(
+            conn,
+            org_id,
             "diagnostic_snapshot_quality_flags",
             """
             SELECT COUNT(*)::int
@@ -2632,6 +2887,14 @@ def source_distribution_sql() -> str:
     GROUP BY first_source_name
     ORDER BY first_source_name
     """
+
+
+def flatten_monthly_distribution(distribution: dict[str, dict[str, int]]) -> dict[str, int]:
+    return {
+        f"{month_key}|{bucket}": count
+        for month_key, buckets in distribution.items()
+        for bucket, count in buckets.items()
+    }
 
 
 def optional_table_count_sql() -> str:
@@ -2797,6 +3060,183 @@ def snapshot_count_sql() -> str:
     SELECT COUNT(*)::int
     FROM diagnostic_lead_snapshot
     WHERE clerk_org_id = :org_id
+    """
+
+
+def snapshot_duplicate_lead_sql() -> str:
+    return """
+    SELECT COUNT(*)::int
+    FROM (
+      SELECT lead_id
+      FROM diagnostic_lead_snapshot
+      WHERE clerk_org_id = :org_id
+      GROUP BY lead_id
+      HAVING COUNT(*) <> 1
+    ) duplicates
+    """
+
+
+def snapshot_latest_profession_count_sql() -> str:
+    return """
+    SELECT COUNT(*)::int
+    FROM diagnostic_lead_snapshot
+    WHERE clerk_org_id = :org_id
+      AND latest_profession IS NOT NULL
+    """
+
+
+def snapshot_latest_employment_status_count_sql() -> str:
+    return """
+    SELECT COUNT(*)::int
+    FROM diagnostic_lead_snapshot
+    WHERE clerk_org_id = :org_id
+      AND latest_employment_status IS NOT NULL
+    """
+
+
+def snapshot_latest_profile_blank_sql() -> str:
+    return """
+    SELECT COUNT(*)::int
+    FROM diagnostic_lead_snapshot
+    WHERE clerk_org_id = :org_id
+      AND (
+        (latest_profession IS NOT NULL AND NULLIF(BTRIM(latest_profession), '') IS NULL)
+        OR (
+          latest_employment_status IS NOT NULL
+          AND NULLIF(BTRIM(latest_employment_status), '') IS NULL
+        )
+      )
+    """
+
+
+def snapshot_latest_profile_unknown_sql() -> str:
+    return """
+    SELECT COUNT(*)::int
+    FROM diagnostic_lead_snapshot
+    WHERE clerk_org_id = :org_id
+      AND (
+        LOWER(BTRIM(COALESCE(latest_profession, ''))) IN ('unknown', 'not set', 'n/a')
+        OR LOWER(BTRIM(COALESCE(latest_employment_status, ''))) IN ('unknown', 'not set', 'n/a')
+      )
+    """
+
+
+def snapshot_latest_profession_distribution_sql() -> str:
+    return """
+    SELECT latest_profession AS bucket, COUNT(*)::int AS row_count
+    FROM diagnostic_lead_snapshot
+    WHERE clerk_org_id = :org_id
+    GROUP BY latest_profession
+    ORDER BY latest_profession
+    """
+
+
+def snapshot_monthly_profession_distribution_sql() -> str:
+    return """
+    SELECT
+      to_char(date_trunc('month', lead_created_at), 'YYYY-MM') || '|' || latest_profession AS bucket,
+      COUNT(*)::int AS row_count
+    FROM diagnostic_lead_snapshot
+    WHERE clerk_org_id = :org_id
+    GROUP BY 1
+    ORDER BY 1
+    """
+
+
+def snapshot_latest_employment_status_distribution_sql() -> str:
+    return """
+    SELECT latest_employment_status AS bucket, COUNT(*)::int AS row_count
+    FROM diagnostic_lead_snapshot
+    WHERE clerk_org_id = :org_id
+    GROUP BY latest_employment_status
+    ORDER BY latest_employment_status
+    """
+
+
+def snapshot_profession_even_distribution_sql() -> str:
+    return """
+    WITH buckets AS (
+      SELECT latest_profession, COUNT(*)::int AS row_count
+      FROM diagnostic_lead_snapshot
+      WHERE clerk_org_id = :org_id
+      GROUP BY latest_profession
+    )
+    SELECT CASE WHEN COUNT(DISTINCT row_count) = 1 THEN 1 ELSE 0 END::int
+    FROM buckets
+    """
+
+
+def snapshot_employment_status_even_distribution_sql() -> str:
+    return """
+    WITH buckets AS (
+      SELECT latest_employment_status, COUNT(*)::int AS row_count
+      FROM diagnostic_lead_snapshot
+      WHERE clerk_org_id = :org_id
+      GROUP BY latest_employment_status
+    )
+    SELECT CASE WHEN COUNT(DISTINCT row_count) = 1 THEN 1 ELSE 0 END::int
+    FROM buckets
+    """
+
+
+def snapshot_latest_profile_mismatch_sql() -> str:
+    return """
+    WITH latest_profession AS (
+      SELECT DISTINCT ON (o.lead_id)
+        o.lead_id,
+        NULLIF(BTRIM(q.answer), '') AS latest_profession
+      FROM opt_ins o
+      JOIN opt_in_question_answers q
+        ON q.opt_in_id = o.id
+      WHERE o.clerk_org_id = :org_id
+        AND LOWER(BTRIM(q.question)) = LOWER('What do you do for work?')
+        AND NULLIF(BTRIM(q.answer), '') IS NOT NULL
+      ORDER BY
+        o.lead_id,
+        COALESCE(q.created_at, o.created_at) DESC,
+        o.created_at DESC,
+        o.id DESC,
+        q.id DESC
+    ),
+    latest_employment_status AS (
+      SELECT DISTINCT ON (o.lead_id)
+        o.lead_id,
+        NULLIF(BTRIM(q.answer), '') AS latest_employment_status
+      FROM opt_ins o
+      JOIN opt_in_question_answers q
+        ON q.opt_in_id = o.id
+      WHERE o.clerk_org_id = :org_id
+        AND LOWER(BTRIM(q.question)) = LOWER('What is your employment status?')
+        AND NULLIF(BTRIM(q.answer), '') IS NOT NULL
+      ORDER BY
+        o.lead_id,
+        COALESCE(q.created_at, o.created_at) DESC,
+        o.created_at DESC,
+        o.id DESC,
+        q.id DESC
+    ),
+    expected AS (
+      SELECT
+        l.id AS lead_id,
+        lp.latest_profession,
+        les.latest_employment_status
+      FROM leads l
+      LEFT JOIN latest_profession lp
+        ON lp.lead_id = l.id
+      LEFT JOIN latest_employment_status les
+        ON les.lead_id = l.id
+      WHERE l.clerk_org_id = :org_id
+        AND l.is_deleted = false
+    )
+    SELECT COUNT(*)::int
+    FROM diagnostic_lead_snapshot d
+    JOIN expected e
+      ON e.lead_id = d.lead_id
+    WHERE d.clerk_org_id = :org_id
+      AND (
+        d.latest_profession IS DISTINCT FROM e.latest_profession
+        OR d.latest_employment_status IS DISTINCT FROM e.latest_employment_status
+      )
     """
 
 

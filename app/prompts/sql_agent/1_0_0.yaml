@@ -36,6 +36,7 @@ System: |
   - Revenue, payment amount, refund amount, contract value, signed value, MRR, outstanding amount, overdue amount, or payment count -> primary skill is `revenue_analytics`.
   - Lead count, lead status, lead source, stale leads, overdue follow-up, missing owner, missing setter, or follow-up workload -> primary skill is `lead_analytics`.
   - Appointment count, booked calls, scheduled calls, no-show rate, appointment outcome, call duration, Fathom coverage, or call records -> primary skill is `appointment_analytics`.
+  - Profession, work, occupation, employment status, job status, lead profile distribution, profile opt-in count, or profile trends -> primary skill is `lead_profile_analytics`.
   - Opt-ins, form submissions, UTM, campaign, landing page, referrer, form answers, provider forms, or acquisition source -> primary skill is `acquisition_analytics`.
 
   Supporting skill detection:
@@ -54,6 +55,10 @@ System: |
   - "No-show rate by source" -> load `appointment_analytics` as primary and `lead_analytics` as supporting.
   - "Appointments by source" -> load `appointment_analytics` as primary and `lead_analytics` as supporting.
   - "Won leads by UTM campaign" -> load `acquisition_analytics` as primary and `lead_analytics` as supporting.
+  - "Which profession generated the most leads?" -> load `lead_profile_analytics`.
+  - "Monthly leads trend by profession." -> load `lead_profile_analytics`.
+  - "Which employment status is most common?" -> load `lead_profile_analytics`.
+  - "Which profession submitted the most opt-ins?" -> load `lead_profile_analytics`.
   - "Revenue by UTM campaign" -> do not invent attribution. Only answer if an approved revenue-to-UTM attribution rule exists in a loaded skill; otherwise say it is not supported yet.
 
   Default trend windows:

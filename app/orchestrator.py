@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Sequence
 from enum import Enum
 from pathlib import Path
@@ -17,6 +18,34 @@ ROUTER_PROMPT_PATH = APP_DIR / "prompts" / "router.md"
 UNSUPPORTED_MESSAGE = (
     "That request is not supported. I can help with read-only analytics or a safe "
     "single-lead Lead 360 view."
+)
+PROFILE_DIAGNOSTIC_TERM_RE = re.compile(
+    r"\b("
+    r"profession|professions|occupation|occupations|work|job|jobs|role|roles|"
+    r"employment\s+status|working\s+status|job\s+status|work\s+status|"
+    r"business\s+owner|self[-\s]?employed|employee|student|trader|investor|"
+    r"sales\s+or\s+marketing|technology|healthcare|retired|unemployed|"
+    r"full[-\s]?time|part[-\s]?time"
+    r")\b",
+    re.IGNORECASE,
+)
+PROFILE_SQL_INTENT_RE = re.compile(
+    r"\b("
+    r"most\s+leads|generated\s+the\s+most|generated.*leads|"
+    r"most\s+common|submitted.*opt-?ins?|opt-?ins?.*by|"
+    r"trend|trends|increasing|joined|recently|"
+    r"breakdown|distribution|group\s+by|how\s+many|count"
+    r")\b",
+    re.IGNORECASE,
+)
+PROFILE_DIAGNOSTIC_INTENT_RE = re.compile(
+    r"\b("
+    r"converts?\s+best|highest\s+paid\s+conversion|paid\s+conversion|"
+    r"should\s+we|should\s+sales|focus\s+on|prioriti[sz]e|"
+    r"why|not\s+converting|converting\s+better|weak\s+conversion|"
+    r"high\s+volume\s+but\s+weak"
+    r")\b",
+    re.IGNORECASE,
 )
 
 
@@ -51,6 +80,56 @@ def _coerce_router_response(raw_response: Any) -> RouterResponse:
     if hasattr(RouterResponse, "model_validate"):
         return RouterResponse.model_validate(raw_response)
     return RouterResponse.parse_obj(raw_response)
+
+
+def _is_profile_question(question: str) -> bool:
+    clean_question = str(question or "").strip()
+    return bool(PROFILE_DIAGNOSTIC_TERM_RE.search(clean_question))
+
+
+def _should_force_profile_sql_route(question: str) -> bool:
+    clean_question = str(question or "").strip()
+    return bool(
+        _is_profile_question(clean_question)
+        and PROFILE_SQL_INTENT_RE.search(clean_question)
+        and not PROFILE_DIAGNOSTIC_INTENT_RE.search(clean_question)
+    )
+
+
+def _should_force_profile_diagnostic_route(question: str) -> bool:
+    clean_question = str(question or "").strip()
+    return bool(
+        _is_profile_question(clean_question)
+        and PROFILE_DIAGNOSTIC_INTENT_RE.search(clean_question)
+    )
+
+
+def _apply_router_overrides(
+    router_response: RouterResponse,
+    *,
+    current_question: str,
+) -> RouterResponse:
+    if router_response.route == RouterRoute.LEAD_360:
+        return router_response
+
+    standalone_question = router_response.standalone_question or current_question
+    override_question = "\n".join(
+        part for part in (current_question, standalone_question) if part
+    )
+
+    if _should_force_profile_diagnostic_route(override_question):
+        return RouterResponse(
+            route=RouterRoute.DIAGNOSTIC_ANALYTICS,
+            history_count=router_response.history_count,
+            standalone_question=standalone_question,
+        )
+    if _should_force_profile_sql_route(override_question):
+        return RouterResponse(
+            route=RouterRoute.SQL_ANALYTICS,
+            history_count=router_response.history_count,
+            standalone_question=standalone_question,
+        )
+    return router_response
 
 
 def _turn_question(turn: Any) -> str:
@@ -222,7 +301,11 @@ def route_question(
     router_messages = build_router_messages(current_question, history)
     effective_router = router or create_default_router()
     raw_response = _invoke_component(effective_router, router_messages, config=config)
-    return _coerce_router_response(raw_response), history
+    router_response = _coerce_router_response(raw_response)
+    return _apply_router_overrides(
+        router_response,
+        current_question=current_question,
+    ), history
 
 
 def selected_history_for_route(

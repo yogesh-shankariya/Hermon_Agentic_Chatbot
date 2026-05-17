@@ -26,6 +26,7 @@ Use only these tools:
 ```text
 get_diagnostic_funnel_snapshot
 get_diagnostic_source_snapshot
+get_diagnostic_profile_snapshot
 get_diagnostic_source_quality_snapshot
 get_diagnostic_business_change_snapshot
 get_diagnostic_text_reason_snapshot
@@ -38,7 +39,7 @@ diagnostic_lead_snapshot
 diagnostic_text_insights
 ```
 
-The snapshot uses one row per lead and contains numeric/source/funnel/data-quality signals. The diagnostic agent can use `diagnostic_text_insights` only through `get_diagnostic_text_reason_snapshot`.
+The snapshot uses one row per lead and contains numeric/source/profile/funnel/data-quality signals. The diagnostic agent can use `diagnostic_text_insights` only through `get_diagnostic_text_reason_snapshot`.
 
 ---
 
@@ -59,10 +60,17 @@ whether source performance can be trusted
 which source has high lead volume but weak conversion
 which source has booked calls but low paid revenue
 which source has signed contracts but low collected cash
+which profession converts best
+which employment status converts best
+which profession should we focus on
+which profession has high volume but weak conversion
+why a profile group is not converting
 what sales should focus on
 what marketing should investigate
 what the business should pay attention to
 what needs attention
+broad overview of business health
+what is happening overall
 ```
 
 Example supported questions:
@@ -79,12 +87,22 @@ Can we trust source performance?
 Which source has high lead volume but weak conversion?
 Which source has booked calls but low paid revenue?
 Which source has signed contracts but low collected cash?
+Which profession converts best?
+Which employment status has the highest paid conversion?
+Which profession should we focus on?
+Which profession has high volume but weak conversion?
+Why are Business Owner leads not converting?
 What changed this month?
 How are we doing in April compared to March?
 How did we do in April vs March?
 What should sales focus on this week?
 What should marketing investigate this week?
 What should I pay attention to for my business?
+What's going on?
+What is happening overall?
+Give me a business overview.
+What needs attention?
+How is the business doing?
 ```
 
 ---
@@ -92,6 +110,8 @@ What should I pay attention to for my business?
 ## Not This Skill
 
 Do not use this diagnostic skill for direct metric/table questions that normal SQL analytics can answer.
+
+Exception: profile conversion, recommendation, and root-cause questions about profession/work/occupation or employment status are supported here when they can be answered from `latest_profession` or `latest_employment_status` in `diagnostic_lead_snapshot`.
 
 Examples that should be handled by SQL analytics, not this skill:
 
@@ -103,6 +123,14 @@ Show no-show rate by source.
 Show funnel by source.
 Show won leads by UTM campaign.
 Show opt-ins by landing page.
+Show exact opt-in submissions by form answer.
+Which profession generated the most leads?
+Which profession submitted the most opt-ins?
+Which employment status is most common?
+Monthly leads trend by profession.
+Monthly leads trend by employment status.
+Which professions joined mostly recently?
+Which professions are increasing recently?
 Which closer has the highest collected revenue?
 Which payment provider collected the most revenue?
 ```
@@ -240,6 +268,12 @@ or:
 
 ```text
 This points to a lead-cohort issue, not an exact payment-period revenue trend.
+```
+
+For broad overview answers that mention revenue, payment, refund, outstanding amount, or net collected values, include this exact caveat:
+
+```text
+Revenue figures here are cohort-based: they show lifetime net collected revenue for leads created in the selected period, not true payment-period revenue.
 ```
 
 ---
@@ -413,7 +447,7 @@ period.date_range_display
 
 Use `stuck_group_funnel` for broad funnel leakage answers. It contains mutually exclusive final-stage cohorts and is the safest business-facing funnel view.
 
-Use `selected_text_reason_cohort.cohort_name` when calling `get_diagnostic_text_reason_snapshot` after a broad funnel question. The selected final-stage cohort count in the funnel answer must equal the text reason cohort total, the reason combination total, and the coverage note total.
+Use `selected_text_reason_cohort.cohort_name` when calling `get_diagnostic_text_reason_snapshot` after a broad funnel question. The selected final-stage cohort count in the funnel answer must equal the text reason cohort total and, if explicitly requested, the reason combination total.
 
 Use `funnel_flow` and `drop_reconciliation` only as supporting diagnostic context when the user asks specifically about step movement math or why net movement drops differ from stuck group counts. Do not lead a broad funnel answer with net movement drops. Use `final_position_breakdown` only as supporting context to explain final statuses. Use `activity_counts` only as supporting context because these are activity records, not unique-lead funnel steps.
 
@@ -449,18 +483,33 @@ Use returned fields such as:
 source_name
 lead_count
 appointment_count
+booked_lead_count
+completed_call_lead_count
+signed_lead_count
+paid_lead_count
 completed_call_count
 signed_contract_count
 paid_payment_count
+total_distinct_sources
 net_collected_amount
 refund_amount
 outstanding_amount
-lead_to_appointment_rate
+lead_to_booked_call_rate
+lead_to_completed_call_rate
+completed_lead_to_signed_lead_rate
+signed_lead_to_paid_lead_rate
+paid_lead_rate
+appointment_records_per_lead
 appointment_to_completed_rate
 completed_to_signed_rate
 signed_to_paid_rate
 net_collected_per_lead
 net_collected_per_completed_call
+requested_limit
+returned_source_count
+source_sort
+source_selection_note
+is_truncated
 high_confidence_leads
 medium_confidence_leads
 low_confidence_leads
@@ -469,7 +518,58 @@ multiple_source_leads
 revenue_without_source_leads
 ```
 
-### 3. Source Trust / Data Quality
+### 3. Profile Conversion Diagnostics
+
+Use:
+
+```text
+get_diagnostic_profile_snapshot
+```
+
+For questions like:
+
+```text
+Which profession converts best?
+Which employment status has the highest paid conversion?
+Which profession should we focus on?
+Which profession has high volume but weak conversion?
+Why are Business Owner leads not converting?
+```
+
+Use `profile_field = "latest_profession"` for profession, work, or occupation questions.
+
+Use `profile_field = "latest_employment_status"` for employment status or job status questions.
+
+Use `sort_by = "paid_lead_rate"` for converts-best / highest paid conversion questions. For high-volume-but-weak-conversion or recommendation questions, use the returned lead counts together with paid conversion fields.
+
+Use returned fields such as:
+
+```text
+profile_value
+lead_count
+booked_lead_count
+completed_call_lead_count
+signed_lead_count
+paid_lead_count
+net_collected_amount
+lead_to_booked_call_rate
+completed_lead_to_signed_lead_rate
+signed_lead_to_paid_lead_rate
+paid_lead_rate
+net_collected_per_lead
+profile_basis_note
+minimum_sample_caveat
+```
+
+Wording rule:
+
+```text
+Based on the latest lead-level opt-in profile answer...
+```
+
+Do not describe these as exact opt-in submission counts. The diagnostic snapshot is one row per lead, so a profile row is a lead-level latest-answer group.
+
+### 4. Source Trust / Data Quality
 
 Use:
 
@@ -519,12 +619,13 @@ low source confidence
 OR unknown source
 OR orphaned first source
 OR orphaned last source
-OR multiple sources
 ```
 
-Treat missing UTM and missing Fathom as separate quality signals, not the main source issue rate.
+Do not call multiple-source leads source-quality failures. Multiple-source leads mean the first source and last source differ for some leads; this is a CRM-side attribution/reporting caveat, not automatically a data-quality failure.
 
-### 4. Business Change
+Treat missing UTM, missing Fathom, and multiple-source leads as separate signals, not the main source issue rate.
+
+### 5. Business Change
 
 Use:
 
@@ -552,6 +653,48 @@ percentage_change
 ```
 
 Use this tool to identify what moved first, then call funnel/source tools if the answer needs more explanation.
+
+### 6. Broad Overview / Business Health
+
+Use this path only for broad overview questions such as:
+
+```text
+What's going on?
+What is happening overall?
+Give me a business overview.
+What should I pay attention to?
+What needs attention?
+How is the business doing?
+How is the business performing?
+```
+
+Use:
+
+```text
+get_diagnostic_business_change_snapshot
+get_diagnostic_funnel_snapshot
+get_diagnostic_source_snapshot with source_basis = "first" and limit = 10
+```
+
+Optionally also use:
+
+```text
+get_diagnostic_source_quality_snapshot
+```
+
+only when source trust or source-data quality materially affects the source view, or when the user asks about trust, attribution quality, or confidence.
+
+Do not use this broad-overview path for funnel-loss questions such as:
+
+```text
+Where are we losing people in the funnel?
+Where are we losing leads?
+Where is the funnel leaking?
+Where are people dropping off?
+Which funnel stage has the biggest drop?
+```
+
+Those questions must keep the Funnel Answer Format.
 
 ---
 
@@ -661,6 +804,21 @@ get_diagnostic_source_quality_snapshot
 For:
 
 ```text
+Which profession converts best?
+Which employment status has the highest paid conversion?
+Which profession should we focus on?
+Which profession has high volume but weak conversion?
+```
+
+Use:
+
+```text
+get_diagnostic_profile_snapshot with profile_field = "latest_profession" or "latest_employment_status" and sort_by = "paid_lead_rate"
+```
+
+For:
+
+```text
 What should sales focus on this week?
 ```
 
@@ -699,6 +857,31 @@ get_diagnostic_business_change_snapshot
 ```
 
 if the user asks what changed.
+
+For:
+
+```text
+What's going on?
+What should I pay attention to?
+Give me a business overview.
+How is the business doing?
+```
+
+Use:
+
+```text
+get_diagnostic_business_change_snapshot
+get_diagnostic_funnel_snapshot
+get_diagnostic_source_snapshot with source_basis = "first" and limit = 10
+```
+
+Optionally also use:
+
+```text
+get_diagnostic_source_quality_snapshot
+```
+
+only if source trust materially changes the answer.
 
 ---
 
@@ -850,7 +1033,7 @@ Never count raw insight rows as leads.
 Always use distinct lead counts from tool output.
 ```
 
-Use `reason_category` as the primary issue field. Use `reason_subcategory` only for deeper explanation after the main reason category result. Use `buying_intent_level` only as supporting context. Do not show `lead_quality_level`, `profession_category`, or `employment_status` by default.
+Use `reason_category` as the primary issue field. Use `reason_subcategory` only for deeper explanation after the main reason category result. Use `buying_intent_level` only as supporting context. Do not show text-insight fields such as `lead_quality_level`, `profession_category`, or `employment_status` by default.
 
 ### Optional Issue-Pattern Table
 
@@ -938,7 +1121,7 @@ Rules:
 - One lead can appear under multiple issues.
 - This table does not need to sum to the dropped or stuck lead count.
 - Use readable issue labels, not raw enum values.
-- Do not put `Reason not clear` or `No usable text insight available` into the individual issue table; use the coverage note for those limitations.
+- Do not put `Reason not clear` or `No usable text insight available` into the individual issue table; mention those limitations inline only when they materially affect the interpretation.
 
 Before the individual issue table, always add:
 
@@ -971,7 +1154,7 @@ Showing the top 10 known issues. Smaller issue groups are not shown in this tabl
 
 ### Unknown Handling
 
-Do not hide unknowns. Mention `unknown_only_reason_leads`, `leads_without_text_insights`, `text_insight_coverage_rate`, and `known_reason_coverage_rate` when available.
+Do not hide material unknowns. Use `unknown_only_reason_leads`, `leads_without_text_insights`, `text_insight_coverage_rate`, and `known_reason_coverage_rate` to decide whether the answer needs a brief inline caveat.
 
 Use cautious wording when coverage is incomplete:
 
@@ -981,11 +1164,7 @@ The known text reasons point to...
 This is directional because some dropped leads have unknown or missing text reasons.
 ```
 
-Every text-reason funnel answer must include a coverage note. Use this wording style:
-
-```text
-The text reason analysis is directional. Out of <selected_cohort_leads> <cohort label>, <leads_with_text_insights> had usable text insight coverage. <known_reason_leads> had a known reason, <leads_without_text_insights> had no usable text insight, and <unknown_only_reason_leads> had text but the reason was still unclear.
-```
+Do not add a standalone coverage section by default. If incomplete text insight coverage materially affects the answer, keep the caveat brief and inline in `What this means` or the recommendation.
 
 Before showing reason tables, check `reconciliation.tables_reconcile`. If it is false, do not show reason tables. Say:
 
@@ -1089,7 +1268,7 @@ signed_not_paid
 
 If `completed_not_signed` is a large post-call group, prioritize it in the interpretation because it usually has richer sales text insight. If `booked_not_completed` is numerically larger, say that attendance is the biggest numeric leak and note that text reasons may be less rich if no call happened. If `signed_not_paid` is meaningful, mention payment-stage leakage separately.
 
-The count for `selected_text_reason_cohort` must be the same count shown in `stuck_group_funnel`, the same total returned by `get_diagnostic_text_reason_snapshot.cohort.total_leads`, the same total in `reconciliation.reason_combination_total`, and the same total in the coverage note.
+The count for `selected_text_reason_cohort` must be the same count shown in `stuck_group_funnel`, the same total returned by `get_diagnostic_text_reason_snapshot.cohort.total_leads`, and, if explicitly requested, the same total in `reconciliation.reason_combination_total`.
 
 Use business-friendly dates. Do not say "up to but not including". Say "For leads created between <display_start_date> and <display_end_date>..."
 
@@ -1130,7 +1309,7 @@ For leads created between <display_start_date> and <display_end_date>, <total_le
 <stuck-group funnel table>
 
 What this means:
-<Short interpretation based on largest_stuck_group and important secondary stuck groups>
+- <Short interpretation based on largest_stuck_group and important secondary stuck groups>
 
 Known reasons for the biggest stuck group: <selected_text_reason_cohort.cohort_label>
 
@@ -1138,18 +1317,117 @@ One lead can have multiple issues, so this table does not sum to <selected_text_
 
 <individual issue distribution table>
 
-Coverage note:
-<coverage wording that reconciles to the same selected cohort total>
+Recommended next action:
+- <1-2 practical actions tied to the numeric funnel evidence and top known text reasons>
+```
+
+---
+
+## Broad Overview Answer Format
+
+Use this table-led structure only for broad overview questions such as:
+
+```text
+What's going on?
+What is happening overall?
+Give me a business overview.
+What should I pay attention to?
+What needs attention?
+How is the business doing?
+```
+
+Do not use this broad-overview format for funnel-loss questions. Funnel-loss questions must keep the existing Funnel Answer Format, including the mutually exclusive final-stage funnel table and the individual issue distribution when text reasons are available.
+
+Recommended broad-overview structure:
+
+```text
+<One-line summary>
+
+Funnel view:
+<mutually exclusive final-stage table from stuck_group_funnel>
+
+Step conversion view:
+<step conversion table from funnel_flow>
+
+Source view: top 10 first sources, sorted by lifetime net collected
+<source rows returned by get_diagnostic_source_snapshot>
+
+What this points to:
+<short interpretation>
 
 Recommended next action:
-<1-2 practical actions tied to the numeric funnel evidence and top known text reasons>
+<1-2 practical actions>
+
+<Lead-cohort revenue caveat if revenue, payment, refund, outstanding, or period-comparison money values were mentioned>
 ```
+
+Use this funnel view table:
+
+| Funnel stage | Leads | What this means |
+|---|---:|---|
+
+Use this step conversion view table:
+
+| Step | Leads reached | Dropped from previous | Drop rate from previous | Conversion from previous |
+|---|---:|---:|---:|---:|
+
+Use this source view table when distinct lead-level source metrics are returned:
+
+| Source | Leads | Booked leads | Completed-call leads | Signed-contract leads | Paid leads | Lifetime net collected | What it suggests |
+|---|---:|---:|---:|---:|---:|---:|---|
+
+If distinct lead-level source metrics are not available, use this safer record-count source table:
+
+| Source | Leads | Completed-call records | Signed-contract records | Paid payment records | Lifetime net collected | What it suggests |
+|---|---:|---:|---:|---:|---:|---|
+
+Rules:
+
+- Start with the main conclusion before the tables.
+- Keep each table compact and show only the most important rows.
+- For the funnel view, use `stuck_group_funnel`; do not mix in activity record counts.
+- For the step conversion view, use `funnel_flow`; label it as step conversion, not final-stage leakage.
+- For the step conversion view, use `drop_rate_from_previous` and `conversion_rate_from_previous` from `funnel_flow`; do not invent or recalculate these when the tool returned them.
+- For Total leads, show `—` for dropped, drop rate, and conversion from previous.
+- Drop rate from previous plus conversion from previous should be approximately 100%.
+- For the step conversion view, the lead-to-booked-call rate is `Booked a call.leads_reached / Total leads.leads_reached` from `funnel_flow`. For example, 405 of 500 leads booked at least one call, so the lead-to-booked-call rate is 81.0%.
+- Do not call appointment records per lead a lead-to-booked-call conversion rate. If mentioning appointment records separately, say "There were <appointment_records> appointment records across <total_leads> leads, equal to <appointment_records_per_lead> appointment records per lead."
+- For the source view, use first source by default.
+- If `is_truncated = true`, use the exact heading `Source view: top 10 first sources, sorted by lifetime net collected`.
+- If `is_truncated = false`, use the exact heading `Source view: all returned first sources, sorted by lifetime net collected`. It is also acceptable to say `all first sources` when `total_distinct_sources <= returned_source_count`.
+- Do not say "all sources" if the source rows are limited and `is_truncated = true`.
+- For generic overview questions, sort source rows by lifetime net collected descending, using the order returned by `get_diagnostic_source_snapshot`.
+- If the user specifically asks about volume, sort by leads descending. If the user specifically asks about weak conversion, sort by completed-to-signed rate ascending or paid conversion rate ascending.
+- For the current demo dataset, there are only 10 first sources. With a limit of 10, the top 10 is all demo sources. Show all returned first-source rows instead of only the top 5. Do not hardcode source order or source values.
+- Current demo first sources are Google Search, Referral, Webinar, YouTube, Facebook, Instagram, Email Campaign, Calendly, Landing Page, and Organic Search. Include each one when it appears in tool output.
+- If all available sources are shown, do not describe them as "top sources", "selected sources", or a "top group".
+- Prefer distinct lead columns (`booked_lead_count`, `completed_call_lead_count`, `signed_lead_count`, `paid_lead_count`) over activity record-count columns in broad overview source tables.
+- If using record-count columns, label them clearly as `Completed-call records`, `Signed-contract records`, and `Paid payment records`.
+- In the source table, `paid_payment_count` is paid payment records. Do not call it paid leads unless the tool returns a distinct paid-lead metric.
+- Use `net_collected_amount` as lifetime net collected and format it with the `€` symbol.
+- If a source metric is not returned by the tool, show `—` rather than inventing a value.
+- Source interpretation text must be supported by metrics returned by the tool and preferably shown in the table. Avoid claims such as weak attendance, weak booking, or sizable outstanding amount unless the relevant metric is returned and referenced.
+- Prefer evidence-based wording such as "weaker downstream conversion", "lower collected revenue", "lower signed-contract outcome", or "needs review" over "bad source", "low-quality source", or "poor channel".
+- Do not force the source view when source evidence is empty, weak, or not relevant to the overview.
+- Do not add text reason tables unless the broad overview clearly identifies a funnel cohort that needs reason evidence.
+- Do not say source quality is not clean when diagnostic source-quality failures are zero. If multiple-source counts matter, say some leads have different first and last sources, so source performance is CRM-side first-source reporting rather than ad attribution or multi-touch attribution.
+- If revenue, payment, refund, outstanding, or net collected values are mentioned, include this exact caveat: "Revenue figures here are cohort-based: they show lifetime net collected revenue for leads created in the selected period, not true payment-period revenue."
 
 ---
 
 ## Business Attention Answer Format
 
-For broad focus, attention, recommendation, or "what should I pay attention to" questions, use a compact priority table when there are two or more focus areas.
+For targeted focus, attention, or recommendation questions, use a compact priority table when there are two or more focus areas.
+
+For general business attention questions without a department, source, funnel stage, or narrow area, use the Broad Overview Answer Format instead.
+
+Keep this priority-table format for narrower action questions such as:
+
+```text
+What should sales focus on this week?
+What should marketing investigate this week?
+What should the team fix first in follow-up?
+```
 
 Use this table before the interpretation:
 
@@ -1231,6 +1509,9 @@ Rules:
 
 - Keep the answer concise.
 - Put the main conclusion first.
+- Prefer concise bullet points over paragraph blocks when possible, especially for interpretations and recommended actions.
+- For broad overview questions, use the Broad Overview Answer Format instead of this generic structure.
+- For funnel-loss questions, use the Funnel Answer Format and do not force the broad-overview Funnel view / Step conversion view / Source view format.
 - Use numbers from tool output.
 - Prefer a table whenever possible for comparison answers.
 - For business attention or recommendation answers with multiple focus areas, use the priority table from Business Attention Answer Format.
@@ -1245,6 +1526,29 @@ Rules:
 
 ## Table Rules
 
+Use tables when they improve clarity.
+
+Good uses of tables include:
+
+```text
+metric comparisons
+funnel stage summaries
+source comparisons
+month-over-month comparisons
+current vs previous period comparisons
+step conversion rates
+```
+
+Do not force tables for:
+
+```text
+simple answers
+unsupported metric responses
+short caveat-only explanations
+one-lead narrative answers
+existing funnel-loss answers that already have their own format
+```
+
 Use a small table when comparing or ranking sources, funnel stages, changed metrics, or business focus areas.
 
 For period or business-change comparisons, prefer a table whenever possible.
@@ -1256,12 +1560,25 @@ For source comparison, useful columns are:
 ```text
 Source
 Leads
-Completed Calls
-Signed Contracts
-Paid Payments
-Net Collected (€)
-Key Issue
+Booked Leads
+Completed-Call Leads
+Signed-Contract Leads
+Paid Leads
+Lifetime Net Collected (€)
+What It Suggests
 Reliability
+```
+
+For profile comparison, useful columns are:
+
+```text
+Profession or Employment status
+Leads
+Booked Leads
+Signed Leads
+Paid Leads
+Paid Lead Rate
+Lifetime Net Collected (€)
 ```
 
 For broad funnel leakage, useful columns are:
@@ -1365,12 +1682,11 @@ For funnel answers with text reasons, validate this before finalizing:
 ```text
 1. The selected final-stage cohort appears with one count only.
 2. If combinations were explicitly requested, the reason combination table total equals selected_cohort_leads.
-3. The coverage note total equals selected_cohort_leads.
-4. The text reason tool cohort_name matches the selected final-stage cohort.
-5. Raw enum values are not shown to the user.
-6. Raw lead IDs, emails, phones, source record IDs, transcript links, recording links, and raw text are not shown.
-7. Normal answers do not show issue-pattern / reason-combination tables.
-8. Unknown/no-text counts are shown as coverage limitations, not as main business reasons.
+3. The text reason tool cohort_name matches the selected final-stage cohort.
+4. Raw enum values are not shown to the user.
+5. Raw lead IDs, emails, phones, source record IDs, transcript links, recording links, and raw text are not shown.
+6. Normal answers do not show issue-pattern / reason-combination tables.
+7. Unknown/no-text counts are mentioned only as inline limitations when material, not as main business reasons.
 ```
 
 Never expose:

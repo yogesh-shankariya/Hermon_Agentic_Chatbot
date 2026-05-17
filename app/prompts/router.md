@@ -28,6 +28,14 @@ Examples:
 - What is the appointment no-show rate?
 - Compare lead count in April vs March.
 - What is the lead trend?
+- Which profession generated the most leads?
+- Which profession submitted the most opt-ins?
+- Which employment status is most common?
+- Monthly leads trend by profession.
+- Show profession distribution by month.
+- Which professions joined mostly recently?
+- Which professions are increasing recently?
+- Monthly leads trend by employment status.
 
 `lead_360`  
 Use only when the user asks about one specific lead, customer, prospect, or person using a name, email, phone, lead ID, or clear single-lead context.
@@ -42,6 +50,8 @@ Examples:
 
 `diagnostic_analytics`  
 Use for broad business health/performance questions, investigation, root-cause analysis, trust checks, anomaly explanation, misleading metrics, period-over-period business diagnosis, or business recommendations.
+
+Also use for profile conversion quality, recommendation, and root-cause questions, especially profession/work/occupation and employment-status/job-status questions about conversion strength, weak conversion, prioritization, or why a profile group is not converting.
 
 Examples:
 - What is going wrong?
@@ -59,6 +69,11 @@ Examples:
 - What are the top post-call blockers?
 - Where are we losing people in the funnel and why?
 - Where are we loosing people on funnel?
+- Which profession converts best?
+- Which employment status has the highest paid conversion?
+- Which profession should we focus on?
+- Why are Business Owner leads not converting?
+- Which profession has high volume but weak conversion?
 
 `unsupported`  
 Use for unsafe or out-of-scope requests, including write/update/delete/admin actions, secrets, credentials, API keys, webhook payloads, raw private payloads, or unsupported integrations.
@@ -99,6 +114,10 @@ Prefer `diagnostic_analytics` when the user asks why, what changed, what is wron
 
 Route broad questions like "how are we doing", "how did we do", "are we doing better or worse", "overall performance", or "April compared to March" to `diagnostic_analytics` when the user is asking for business performance rather than one explicit metric.
 
+Route generic profile count, trend, distribution, and ranking questions about profession/work/occupation or employment status/job status to `sql_analytics`.
+
+Route profile conversion quality, recommendation, and root-cause questions about profession/work/occupation or employment status/job status to `diagnostic_analytics`.
+
 Use `unsupported` for unsafe, admin, secret, or unsupported requests.
 
 Route to `unsupported` when the question requires ad spend, ROAS, cost per lead, cost per registration, cost per appointment, cost per sale, Facebook Ads spend, YouTube video analytics, Hyros, Airtable, Zoom, webinar platform data, scientific attribution, assisted attribution, multi-touch attribution, or revenue by UTM/landing page/referrer/form/form answer.
@@ -107,6 +126,19 @@ Route to `unsupported` when the question requires ad spend, ROAS, cost per lead,
 
 - "Which source generated the most revenue?" → `sql_analytics`
 - "Which source should we scale?" → `diagnostic_analytics`
+- "Which profession submitted the most opt-ins?" → `sql_analytics`
+- "Which profession generated the most leads?" → `sql_analytics`
+- "Which employment status is most common?" → `sql_analytics`
+- "Monthly leads trend by profession." → `sql_analytics`
+- "Show profession distribution by month." → `sql_analytics`
+- "Which professions joined mostly recently?" → `sql_analytics`
+- "Which professions are increasing recently?" → `sql_analytics`
+- "Monthly leads trend by employment status." → `sql_analytics`
+- "Which profession converts best?" → `diagnostic_analytics`
+- "Which employment status has the highest paid conversion?" → `diagnostic_analytics`
+- "Which profession should we focus on?" → `diagnostic_analytics`
+- "Why are Business Owner leads not converting?" → `diagnostic_analytics`
+- "Which profession has high volume but weak conversion?" → `diagnostic_analytics`
 - "Show cost per lead by source." → `unsupported`
 - "Can we trust this cost per lead number?" → `unsupported`
 - "Can we trust the revenue-by-source answer?" → `diagnostic_analytics`

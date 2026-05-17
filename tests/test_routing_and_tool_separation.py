@@ -172,10 +172,34 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
                 "lead_analytics",
                 "appointment_analytics",
                 "acquisition_analytics",
+                "lead_profile_analytics",
                 "revenue_analytics",
             ],
         )
         self.assertNotIn("lead_360", names)
+
+    def test_lead_profile_sql_skill_contains_profile_question_rules(self):
+        registry_text = (APP_DIR / "skills" / "registry.yaml").read_text(encoding="utf-8")
+        skill_text = (APP_DIR / "skills" / "modules" / "lead_profile_analytics.md").read_text(
+            encoding="utf-8"
+        )
+        sql_prompt = (APP_DIR / "prompts" / "sql_agent" / "1_0_0.yaml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("lead_profile_analytics", registry_text)
+        self.assertIn("Which profession generated the most leads?", skill_text)
+        self.assertIn("Which profession submitted the most opt-ins?", skill_text)
+        self.assertIn("What do you do for work?", skill_text)
+        self.assertIn("What is your employment status?", skill_text)
+        self.assertIn("COUNT(DISTINCT l.id)::int AS lead_count", skill_text)
+        self.assertIn("COUNT(*)::int AS opt_in_count", skill_text)
+        self.assertIn("DATE_TRUNC('month', l.created_at)", skill_text)
+        self.assertIn("l.clerk_org_id = :org_id", skill_text)
+        self.assertIn("l.is_deleted = false", skill_text)
+        self.assertIn("q.question", skill_text)
+        self.assertIn("q.answer", skill_text)
+        self.assertIn("load `lead_profile_analytics`", sql_prompt)
 
     def test_sql_agent_tools_include_only_sql_analytics_tools(self):
         module = self._load_sql_tools_with_fakes()
@@ -184,6 +208,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         self.assertNotIn("get_lead_360", tool_names)
         self.assertNotIn("get_diagnostic_funnel_snapshot", tool_names)
         self.assertNotIn("get_diagnostic_source_snapshot", tool_names)
+        self.assertNotIn("get_diagnostic_profile_snapshot", tool_names)
         self.assertNotIn("get_diagnostic_source_quality_snapshot", tool_names)
         self.assertNotIn("get_diagnostic_business_change_snapshot", tool_names)
         self.assertNotIn("get_diagnostic_text_reason_snapshot", tool_names)
@@ -210,6 +235,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         expected_tool_names = [
             "get_diagnostic_funnel_snapshot",
             "get_diagnostic_source_snapshot",
+            "get_diagnostic_profile_snapshot",
             "get_diagnostic_source_quality_snapshot",
             "get_diagnostic_business_change_snapshot",
             "get_diagnostic_text_reason_snapshot",
@@ -271,6 +297,17 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             ("After calls, why are people not paying?", "diagnostic_analytics"),
             ("Where are we losing people in the funnel and why?", "diagnostic_analytics"),
             ("Where are we losing people on funnel?", "diagnostic_analytics"),
+            ("Which profession generated the most leads?", "sql_analytics"),
+            ("Which profession converts best?", "diagnostic_analytics"),
+            ("Which employment status is most common?", "sql_analytics"),
+            ("Which profession submitted the most opt-ins?", "sql_analytics"),
+            ("Monthly leads trend by profession.", "sql_analytics"),
+            ("Which professions joined mostly recently?", "sql_analytics"),
+            ("Which professions are increasing recently?", "sql_analytics"),
+            ("Monthly leads trend by employment status.", "sql_analytics"),
+            ("Which employment status has the highest paid conversion?", "diagnostic_analytics"),
+            ("Which profession should we focus on?", "diagnostic_analytics"),
+            ("Why are Business Owner leads not converting?", "diagnostic_analytics"),
             ("Why did Vedran not pay?", "lead_360"),
             ("Delete these leads.", "unsupported"),
         ]
@@ -416,6 +453,75 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
                 )
                 self.assertEqual(turn["route"], "diagnostic_analytics")
                 self.assertEqual(turn["answer"], "diagnostic answer")
+                self.assertEqual(len(diagnostic_agent.payloads), 1)
+
+    def test_orchestrator_forces_generic_profile_questions_to_sql_when_router_says_diagnostic(self):
+        orchestrator = self._import_orchestrator()
+        sql_agent = FakeAgent("profile sql answer")
+        questions = [
+            "Which profession submitted the most opt-ins?",
+            "which profession generated the most leads",
+            "Which employment status is most common?",
+            "Monthly leads trend by profession.",
+            "Which professions joined mostly recently?",
+            "Which professions are increasing recently?",
+            "Monthly leads trend by employment status.",
+        ]
+
+        for question in questions:
+            with self.subTest(question=question):
+                sql_agent.payloads.clear()
+                turn = orchestrator.answer_user_question(
+                    question,
+                    [],
+                    router=FakeRouter(
+                        {
+                            "route": "diagnostic_analytics",
+                            "history_count": 0,
+                            "standalone_question": question,
+                        }
+                    ),
+                    sql_agent=sql_agent,
+                    lead_360_agent=FailingAgent(),
+                    diagnostic_agent=FailingAgent(),
+                )
+
+                self.assertEqual(turn["route"], "sql_analytics")
+                self.assertEqual(turn["answer"], "profile sql answer")
+                self.assertEqual(turn["standalone_question"], question)
+                self.assertEqual(len(sql_agent.payloads), 1)
+
+    def test_orchestrator_forces_profile_conversion_questions_to_diagnostic_when_router_says_sql(self):
+        orchestrator = self._import_orchestrator()
+        diagnostic_agent = FakeAgent("profile diagnostic answer")
+        questions = [
+            "Which profession converts best?",
+            "Which employment status has the highest paid conversion?",
+            "Which profession should we focus on?",
+            "Why are Business Owner leads not converting?",
+        ]
+
+        for question in questions:
+            with self.subTest(question=question):
+                diagnostic_agent.payloads.clear()
+                turn = orchestrator.answer_user_question(
+                    question,
+                    [],
+                    router=FakeRouter(
+                        {
+                            "route": "sql_analytics",
+                            "history_count": 0,
+                            "standalone_question": question,
+                        }
+                    ),
+                    sql_agent=FailingAgent(),
+                    lead_360_agent=FailingAgent(),
+                    diagnostic_agent=diagnostic_agent,
+                )
+
+                self.assertEqual(turn["route"], "diagnostic_analytics")
+                self.assertEqual(turn["answer"], "profile diagnostic answer")
+                self.assertEqual(turn["standalone_question"], question)
                 self.assertEqual(len(diagnostic_agent.payloads), 1)
 
     def test_orchestrator_uses_router_history_count_for_single_lead_follow_up(self):
@@ -633,6 +739,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         fake_diagnostic_tools.DIAGNOSTIC_TOOLS = [
             SimpleNamespace(name="get_diagnostic_funnel_snapshot"),
             SimpleNamespace(name="get_diagnostic_source_snapshot"),
+            SimpleNamespace(name="get_diagnostic_profile_snapshot"),
             SimpleNamespace(name="get_diagnostic_source_quality_snapshot"),
             SimpleNamespace(name="get_diagnostic_business_change_snapshot"),
             SimpleNamespace(name="get_diagnostic_text_reason_snapshot"),

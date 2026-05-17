@@ -90,6 +90,7 @@ SAFE_TOOL_PROGRESS_MESSAGES = {
     "get_lead_360": "Fetching the Lead 360 context...",
     "get_diagnostic_funnel_snapshot": "Running diagnostic funnel checks...",
     "get_diagnostic_source_snapshot": "Reviewing source performance signals...",
+    "get_diagnostic_profile_snapshot": "Reviewing profile breakdown signals...",
     "get_diagnostic_source_quality_snapshot": "Checking source quality signals...",
     "get_diagnostic_business_change_snapshot": "Comparing business performance changes...",
     "get_diagnostic_text_reason_snapshot": "Reconciling text reasons with the selected funnel cohort...",

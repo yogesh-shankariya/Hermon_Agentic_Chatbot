@@ -27,6 +27,15 @@ skills:
       - leads
       - sales_statuses
 
+  - name: lead_profile_analytics
+    description: "Use for read-only SQL analytics about lead-level profile attributes derived from latest opt-in form answers, especially latest profession/work/occupation and latest employment status/job status. Supports lead counts, opt-in counts, distributions, monthly trends, recently joined groups, and profile trend analysis. Do not use for root-cause diagnosis, recommendations, or conversion-quality diagnostics; use diagnostic_analytics for those."
+    path: modules/lead_profile_analytics.md
+    primary_tables:
+      - leads
+      - opt_ins
+      - opt_in_question_answers
+      - sales_statuses
+
   - name: revenue_analytics
     description: "Use for read-only SQL analytics about revenue and payment operations: collected revenue, gross paid revenue, net revenue after succeeded refunds, signed contract value, contract status/type breakdowns, contract signed rate, closer/setter/program/source revenue performance, payment status/type/provider breakdowns, pending/failed/overdue/due-soon payments, refunds and refund rate, invoices, payment links, payment proofs, active/past-due/cancelled subscriptions, MRR, subscription checkout links, and unmatched payment reconciliation. Do not use for lead-only counts/status/source/stale lead analysis, appointment/call/no-show/Fathom analytics, opt-ins, UTM/traffic attribution, form answers, provider integration health, webhook troubleshooting, credentials, raw provider payloads, or full single-lead 360 summaries. Can also support cross-skill SQL questions that need revenue, payment, refund, contract, subscription, invoice, or money calculation semantics when an approved join path exists."
     path: modules/revenue_analytics.md
