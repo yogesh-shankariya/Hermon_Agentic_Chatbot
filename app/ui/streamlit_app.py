@@ -35,6 +35,7 @@ from app.orchestrator import (  # noqa: E402
     create_default_router,
     create_default_sql_agent,
 )
+from app.org_context import active_org_context  # noqa: E402
 from app.poc_chat_history import (  # noqa: E402
     clear_poc_chat_history,
     fetch_latest_poc_chat_history,
@@ -76,8 +77,8 @@ COMPACT_TABLE_MAX_COLUMNS = 8
 COMPACT_TABLE_MAX_ROWS = 30
 MAX_CONTEXT_TURNS = 5
 POC_FALLBACK_ORG_ID = "local_demo"
-SAFE_USER_ORG_ID = "org_dummy_client_demo_001"
-DEFAULT_ORG_ENV_VAR = "HERMON_DEFAULT_CLERK_ORG_ID"
+USER_ORG_ENV_VAR = "DEMO_ORG_ID"
+ADMIN_ORG_ENV_VAR = "LIVE_ORG_ID"
 SUPPLEMENTAL_FLOW_NAMES = (
     "Multi Skills Analytics",
     "Lead 360",
@@ -165,6 +166,107 @@ QUESTION_PICKER_CONFIGS: tuple[dict[str, Any], ...] = (
         "path": REVENUE_INPUT_QUESTIONS_PATH,
     },
 )
+USER_QUESTION_PICKER_ORDER = (
+    "diagnostic_analytics",
+    "lead_360",
+    "multi_skills_analytics",
+    "lead_analytics",
+    "revenue_analytics",
+    "appointment_analytics",
+    "acquisition_analytics",
+)
+USER_DIAGNOSTIC_QUESTIONS: tuple[dict[str, str], ...] = (
+    {
+        "id": "UDAQ-001",
+        "category": "Diagnostic Analytics",
+        "question": "What is going on?",
+    },
+    {
+        "id": "UDAQ-002",
+        "category": "Diagnostic Analytics",
+        "question": "Where are we losing people in the funnel?",
+    },
+    {
+        "id": "UDAQ-003",
+        "category": "Diagnostic Analytics",
+        "question": "What trends are you noticing?",
+    },
+    {
+        "id": "UDAQ-004",
+        "category": "Diagnostic Analytics",
+        "question": "Which source has the weakest funnel performance?",
+    },
+    {
+        "id": "UDAQ-005",
+        "category": "Diagnostic Analytics",
+        "question": "What should we do next?",
+    },
+    {
+        "id": "UDAQ-006",
+        "category": "Diagnostic Analytics",
+        "question": "What should I pay attention to for my business?",
+    },
+    {
+        "id": "UDAQ-007",
+        "category": "Diagnostic Analytics",
+        "question": "Which funnel stage has the biggest drop-off?",
+    },
+    {
+        "id": "UDAQ-008",
+        "category": "Diagnostic Analytics",
+        "question": "What should we do to improve show rate?",
+    },
+    {
+        "id": "UDAQ-009",
+        "category": "Diagnostic Analytics",
+        "question": "Why did show rate fall?",
+    },
+    {
+        "id": "UDAQ-010",
+        "category": "Diagnostic Analytics",
+        "question": "Monthly leads trend by profession.",
+    },
+)
+USER_LEAD_360_QUESTIONS: tuple[dict[str, str], ...] = (
+    {
+        "id": "UL360-001",
+        "category": "Lead 360",
+        "question": "Show me Zara West094's full journey",
+    },
+    {
+        "id": "UL360-002",
+        "category": "Lead 360",
+        "question": "What happened with Lena West010 and what should we do next?",
+    },
+    {
+        "id": "UL360-003",
+        "category": "Lead 360",
+        "question": "Give me the 360 view of Ethan Vale139",
+    },
+    {
+        "id": "UL360-004",
+        "category": "Lead 360",
+        "question": "Show me Iris Fields124's full journey",
+    },
+)
+USER_QUESTION_OVERRIDES = {
+    "diagnostic_analytics": USER_DIAGNOSTIC_QUESTIONS,
+    "lead_360": USER_LEAD_360_QUESTIONS,
+}
+UNSUPPORTED_USER_QUESTION_CATEGORIES = {
+    "fathom matching",
+    "unmatched payments",
+}
+UNSUPPORTED_USER_QUESTION_TEXT_PATTERNS = (
+    "unmatched",
+    "not matched",
+    "match strategy",
+)
+HIDDEN_USER_QUESTION_TEXTS = {
+    "show revenue by latest source.",
+    "show leads by owner.",
+    "show leads by setter.",
+}
 
 
 def init_state() -> None:
@@ -210,16 +312,18 @@ def get_runtime_secret(name: str) -> str | None:
 
 
 def resolve_user_org_id() -> str:
-    demo_org_id = get_runtime_secret("DEMO_ORG_ID")
+    demo_org_id = get_runtime_secret(USER_ORG_ENV_VAR)
     if demo_org_id:
         return demo_org_id
 
-    fallback_org_id = str(os.getenv(DEFAULT_ORG_ENV_VAR) or "").strip()
-    if fallback_org_id == SAFE_USER_ORG_ID:
-        return fallback_org_id
-
-    st.error("Standard access is not configured. Ask the app owner to configure access.")
+    st.error(
+        f"User access is not configured. Ask the app owner to configure {USER_ORG_ENV_VAR}."
+    )
     st.stop()
+
+
+def resolve_admin_org_id() -> str | None:
+    return get_runtime_secret(ADMIN_ORG_ENV_VAR)
 
 
 def selected_access_mode() -> str:
@@ -228,8 +332,8 @@ def selected_access_mode() -> str:
 
 
 def resolve_access_context() -> dict[str, str | bool]:
-    user_org_id = resolve_user_org_id()
     if selected_access_mode() != "Admin":
+        user_org_id = resolve_user_org_id()
         return {
             "mode": "User",
             "access_label": "Mode: User",
@@ -238,26 +342,27 @@ def resolve_access_context() -> dict[str, str | bool]:
             "error": "",
         }
 
-    live_org_id = get_runtime_secret("LIVE_ORG_ID")
+    admin_org_id = resolve_admin_org_id()
     admin_access_code = get_runtime_secret("ADMIN_ACCESS_CODE")
     entered_code = str(st.session_state.get("admin_access_code") or "").strip()
 
-    if not live_org_id or not admin_access_code:
+    if admin_org_id and entered_code and entered_code == admin_access_code:
+        return {
+            "mode": "Admin",
+            "access_label": "Mode: Admin",
+            "active_org_id": admin_org_id,
+            "warning": "",
+            "error": "",
+        }
+
+    user_org_id = resolve_user_org_id()
+    if not admin_org_id or not admin_access_code:
         return {
             "mode": "User",
             "access_label": "Mode: User",
             "active_org_id": user_org_id,
             "warning": "",
             "error": "Admin access is not configured. Continuing in User mode.",
-        }
-
-    if entered_code and entered_code == admin_access_code:
-        return {
-            "mode": "Admin",
-            "access_label": "Mode: Admin",
-            "active_org_id": live_org_id,
-            "warning": "",
-            "error": "",
         }
 
     return {
@@ -275,15 +380,8 @@ def current_organization_id() -> str:
 
 @contextmanager
 def active_org_environment(organization_id: str) -> Iterator[None]:
-    previous_org_id = os.environ.get(DEFAULT_ORG_ENV_VAR)
-    os.environ[DEFAULT_ORG_ENV_VAR] = organization_id
-    try:
+    with active_org_context(organization_id):
         yield
-    finally:
-        if previous_org_id is None:
-            os.environ.pop(DEFAULT_ORG_ENV_VAR, None)
-        else:
-            os.environ[DEFAULT_ORG_ENV_VAR] = previous_org_id
 
 
 def turn_from_poc_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -586,6 +684,7 @@ def inject_styles() -> None:
 @st.cache_resource(show_spinner=False)
 def get_flow_components(
     cache_version: str = AGENT_CACHE_VERSION,
+    organization_id: str = "",
     config_mtime_ns: int = 0,
     prompt_mtime_ns: int = 0,
     router_prompt_mtime_ns: int = 0,
@@ -593,6 +692,7 @@ def get_flow_components(
     diagnostic_prompt_mtime_ns: int = 0,
 ):
     _ = cache_version
+    _ = organization_id
     _ = config_mtime_ns
     _ = prompt_mtime_ns
     _ = router_prompt_mtime_ns
@@ -617,6 +717,50 @@ def load_question_matrix() -> dict[str, Any]:
             default_category=config["title"],
         )
         for config in QUESTION_PICKER_CONFIGS
+    }
+
+
+def active_question_picker_configs(is_admin_mode: bool) -> tuple[dict[str, Any], ...]:
+    if is_admin_mode:
+        return QUESTION_PICKER_CONFIGS
+
+    configs_by_key = {str(config["key"]): config for config in QUESTION_PICKER_CONFIGS}
+    return tuple(
+        configs_by_key[key]
+        for key in USER_QUESTION_PICKER_ORDER
+        if key in configs_by_key
+    )
+
+
+def is_user_supported_question(question: dict[str, str]) -> bool:
+    category = str(question.get("category") or "").strip().lower()
+    text = str(question.get("question") or "").strip().lower()
+    if category in UNSUPPORTED_USER_QUESTION_CATEGORIES:
+        return False
+    if text in HIDDEN_USER_QUESTION_TEXTS:
+        return False
+    return not any(pattern in text for pattern in UNSUPPORTED_USER_QUESTION_TEXT_PATTERNS)
+
+
+def user_question_set(config_key: str, question_set: dict[str, Any]) -> dict[str, Any]:
+    override_questions = USER_QUESTION_OVERRIDES.get(config_key)
+    if override_questions is not None:
+        return {
+            "questions": [dict(question) for question in override_questions],
+            "source_file": "",
+        }
+
+    questions = question_set.get("questions")
+    if not isinstance(questions, list):
+        return {"questions": [], "source_file": question_set.get("source_file") or ""}
+
+    return {
+        "questions": [
+            dict(question)
+            for question in questions
+            if isinstance(question, dict) and is_user_supported_question(question)
+        ],
+        "source_file": question_set.get("source_file") or "",
     }
 
 
@@ -1533,6 +1677,7 @@ def run_question(
         poc_history = fetch_router_poc_chat_history(organization_id)
         emit_progress("Loading the configured agents...")
         components = get_flow_components(
+            organization_id=organization_id,
             config_mtime_ns=CONFIG_PATH.stat().st_mtime_ns,
             prompt_mtime_ns=SQL_AGENT_PROMPT_PATH.stat().st_mtime_ns,
             router_prompt_mtime_ns=ROUTER_PROMPT_PATH.stat().st_mtime_ns,
@@ -1871,11 +2016,18 @@ def render_process_trace(turn: dict[str, Any]) -> None:
             render_raw_messages(turn["trace_messages"])
 
 
+def should_show_reference_sections() -> bool:
+    return str(resolve_access_context().get("mode") or "") == "Admin"
+
+
 def render_answer(turn: dict[str, Any], *, stream: bool = False) -> None:
-    details = turn.get("execution_details") or extract_execution_details(turn["trace_messages"])
     clean_answer = clean_answer_for_display(turn["answer"])
 
     render_answer_block(clean_answer, stream=stream)
+    if not should_show_reference_sections():
+        return
+
+    details = turn.get("execution_details") or extract_execution_details(turn["trace_messages"])
     render_reference_intro(turn)
     render_timing_breakdown(turn)
     render_source_data_dropdown(details)
@@ -1913,6 +2065,7 @@ def render_question_picker(
     source_file: str,
     key_prefix: str,
     show_source_file: bool,
+    show_question_ids: bool,
 ) -> None:
     with st.container(border=True):
         st.markdown(f"**{title}**")
@@ -1921,10 +2074,12 @@ def render_question_picker(
         elif show_source_file:
             st.caption("No question CSV found.")
 
-        question_labels = [
-            f"{item['id']}: {item['question']}"
-            for item in questions
-        ]
+        question_labels = []
+        for item in questions:
+            if show_question_ids:
+                question_labels.append(f"{item['id']}: {item['question']}")
+            else:
+                question_labels.append(str(item["question"]))
         dropdown_options = [placeholder, *question_labels]
         selected_question = st.selectbox(
             selectbox_label,
@@ -1975,6 +2130,7 @@ def render_sidebar() -> None:
         elif access_context.get("warning"):
             st.warning(str(access_context["warning"]))
         st.divider()
+        is_admin_mode = str(access_context.get("mode") or "") == "Admin"
 
         st.markdown(
             f"""
@@ -2040,10 +2196,12 @@ def render_sidebar() -> None:
             st.rerun()
 
         st.divider()
-        show_source_file = selected_access_mode() == "Admin"
+        show_source_file = is_admin_mode
         st.markdown("**Question bank**" if show_source_file else "**Suggested questions**")
-        for config in QUESTION_PICKER_CONFIGS:
+        for config in active_question_picker_configs(is_admin_mode):
             question_set = question_matrix.get(config["key"], {})
+            if not is_admin_mode:
+                question_set = user_question_set(str(config["key"]), question_set)
             render_question_picker(
                 title=config["title"],
                 selectbox_label=config["selectbox_label"],
@@ -2052,6 +2210,7 @@ def render_sidebar() -> None:
                 source_file=str(question_set.get("source_file") or ""),
                 key_prefix=config["key"],
                 show_source_file=show_source_file,
+                show_question_ids=show_source_file,
             )
             st.markdown("")
 
@@ -2059,6 +2218,16 @@ def render_sidebar() -> None:
 def render_hero() -> None:
     logo_bytes = BOT_LOGO_PATH.read_bytes()
     logo_src = f"data:image/svg+xml;base64,{base64.b64encode(logo_bytes).decode('ascii')}"
+    if should_show_reference_sections():
+        hero_copy = (
+            "Ask analytics questions in plain English. The agent translates them into safe read-only SQL, "
+            "returns the business answer first, and keeps source rows and SQL tucked away for review."
+        )
+    else:
+        hero_copy = (
+            "Ask analytics questions in plain English. The agent routes to the right analytics flow "
+            "and returns a concise business answer."
+        )
     st.markdown(
         f"""
         <div class="hero-wrap">
@@ -2068,8 +2237,7 @@ def render_hero() -> None:
             <div>
                 <h1 class="hero-title">Hermon Q&amp;A Agent</h1>
                 <div class="hero-copy">
-                    Ask analytics questions in plain English. The agent translates them into safe read-only SQL,
-                    returns the business answer first, and keeps source rows and SQL tucked away for review.
+                    {html.escape(hero_copy)}
                 </div>
             </div>
         </div>

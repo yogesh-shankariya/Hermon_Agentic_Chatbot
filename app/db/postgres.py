@@ -145,12 +145,14 @@ class ReadOnlyPostgres:
         params: dict[str, Any] | None = None,
         *,
         max_rows: int | None = None,
+        timeout_seconds: int | float | None = None,
     ) -> list[dict[str, Any]]:
         """Validate and execute SQL, returning records for API/agent use."""
 
         validated_sql = self.validate_sql(sql)
         limited_sql = self._wrap_with_limit(validated_sql, max_rows=max_rows)
-        return self._execute_records(limited_sql, params=params or {})
+        timeout_ms = self._timeout_ms(timeout_seconds)
+        return self._execute_records(limited_sql, params=params or {}, timeout_ms=timeout_ms)
 
     def validate_sql(self, sql: str) -> str:
         """Return cleaned SQL if safe, otherwise raise QueryValidationError."""
@@ -206,14 +208,21 @@ class ReadOnlyPostgres:
                 transaction.rollback()
                 raise
 
-    def _execute_records(self, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+    def _execute_records(
+        self,
+        sql: str,
+        params: dict[str, Any],
+        *,
+        timeout_ms: int | None = None,
+    ) -> list[dict[str, Any]]:
         engine = self._get_engine()
         with engine.connect() as conn:
             transaction = conn.begin()
             try:
                 conn.exec_driver_sql("SET TRANSACTION READ ONLY")
+                statement_timeout_ms = int(timeout_ms or self.config.statement_timeout_ms)
                 conn.exec_driver_sql(
-                    f"SET LOCAL statement_timeout = {int(self.config.statement_timeout_ms)}"
+                    f"SET LOCAL statement_timeout = {statement_timeout_ms}"
                 )
                 result = conn.execute(text(sql), params)
                 rows = [dict(row) for row in result.mappings()]
@@ -271,6 +280,14 @@ class ReadOnlyPostgres:
 
     def _mask_string_literals(self, sql: str) -> str:
         return re.sub(r"'(?:''|[^'])*'", "''", sql)
+
+    def _timeout_ms(self, timeout_seconds: int | float | None) -> int | None:
+        if timeout_seconds is None:
+            return None
+        timeout_ms = int(float(timeout_seconds) * 1000)
+        if timeout_ms <= 0:
+            raise QueryValidationError("timeout_seconds must be greater than zero.")
+        return timeout_ms
 
     def _referenced_tables(self, sql: str) -> set[str]:
         referenced_tables = {match.group(1).lower() for match in TABLE_REF_RE.finditer(sql)}

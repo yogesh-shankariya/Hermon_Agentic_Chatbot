@@ -11,6 +11,8 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
+from app.org_context import get_active_org_id
+
 
 APP_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = APP_DIR.parent
@@ -106,6 +108,7 @@ def get_sql_agent_settings() -> SqlAgentSettings:
     database_config = config.get("database", {})
 
     default_org_id_env = database_config.get("default_org_id_env", "HERMON_DEFAULT_CLERK_ORG_ID")
+    active_org_id = get_active_org_id()
     model = os.getenv("OPENAI_MODEL") or agent_config.get("Model") or "gpt-5.4"
     reasoning = agent_config.get("reasoning")
     if reasoning is not None and not isinstance(reasoning, dict):
@@ -124,7 +127,7 @@ def get_sql_agent_settings() -> SqlAgentSettings:
         prompt_cache_key=str(prompt_cache_key) if prompt_cache_key else None,
         prompt_cache_retention=str(prompt_cache_retention) if prompt_cache_retention else None,
         service_tier=str(service_tier) if service_tier else None,
-        default_org_id=os.getenv(default_org_id_env),
+        default_org_id=active_org_id or os.getenv(default_org_id_env),
         max_tool_rows=max_tool_rows,
         enabled_skills=_enabled_sql_skills(agent_config),
         prompt_version=str(prompt_config.get("version", "1_0_0")),

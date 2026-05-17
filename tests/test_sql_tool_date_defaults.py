@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import types
 import unittest
@@ -172,6 +173,38 @@ class SqlToolDateDefaultTests(unittest.TestCase):
                 "end_date": "2026-04-01",
             },
         )
+
+    def test_run_readonly_sql_uses_active_org_context_over_default_and_params(self):
+        module = _load_sql_tools_module()
+        from app.org_context import active_org_context, get_active_org_id
+
+        calls = []
+
+        class FakeDb:
+            def query_records(self, sql, params, *, max_rows):
+                calls.append({"sql": sql, "params": dict(params), "max_rows": max_rows})
+                return [{"seen_org_id": params["org_id"]}]
+
+        module.get_db = lambda: FakeDb()
+        module.get_sql_agent_settings = lambda: SimpleNamespace(
+            default_org_id=get_active_org_id() or "org_live",
+            enabled_skills=("lead_analytics",),
+            max_tool_rows=20,
+        )
+
+        with active_org_context("org_demo"):
+            response = module.run_readonly_sql.invoke(
+                {
+                    "query": "SELECT COUNT(*) FROM leads WHERE clerk_org_id = :org_id",
+                    "params_json": '{"org_id": "org_bad"}',
+                }
+            )
+
+        payload = json.loads(response)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(calls[0]["params"]["org_id"], "org_demo")
+        self.assertEqual(payload["effective_params"]["org_id"], "org_demo")
+        self.assertEqual(payload["rows"], [{"seen_org_id": "org_demo"}])
 
 
 if __name__ == "__main__":

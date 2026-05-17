@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import json
 from calendar import monthrange
-from datetime import date, datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -53,6 +54,9 @@ PROFILE_SNAPSHOT_SORTS = {
     "paid_lead_rate": "paid_lead_rate DESC NULLS LAST, lead_count DESC, profile_value ASC",
 }
 DEFAULT_LOOKBACK_MONTHS = 6
+DEFAULT_MONTHLY_TREND_COMPLETED_MONTHS = 3
+MONTHLY_TREND_MAX_WORKERS = 4
+MONTHLY_TREND_SECTION_TIMEOUT_SECONDS = 30
 MONTH_ABBREVIATIONS = (
     "Jan",
     "Feb",
@@ -66,6 +70,13 @@ MONTH_ABBREVIATIONS = (
     "Oct",
     "Nov",
     "Dec",
+)
+MONTHLY_TREND_SECTION_ORDER = (
+    "overall_lead_trend",
+    "revenue_trend",
+    "appointment_trend",
+    "source_lead_trend",
+    "profile_lead_trend",
 )
 
 FUNNEL_STEP_LABELS = {
@@ -323,7 +334,7 @@ def _default_org_id(org_id: str | None) -> str:
     settings = get_sql_agent_settings()
     clean_default = str(settings.default_org_id or "").strip()
     if not clean_default:
-        raise ValueError("org_id is required because HERMON_DEFAULT_CLERK_ORG_ID is not set.")
+        raise ValueError("org_id is required because no active organization ID is set.")
     return clean_default
 
 
@@ -353,8 +364,22 @@ def _query_records(
     params: dict[str, Any],
     *,
     max_rows: int = 200,
+    timeout_seconds: int | None = None,
 ) -> list[dict[str, Any]]:
-    return get_db().query_records(sql, params=params, max_rows=max_rows)
+    db = get_db()
+    if timeout_seconds is None:
+        return db.query_records(sql, params=params, max_rows=max_rows)
+    try:
+        return db.query_records(
+            sql,
+            params=params,
+            max_rows=max_rows,
+            timeout_seconds=timeout_seconds,
+        )
+    except TypeError as exc:
+        if "timeout_seconds" not in str(exc):
+            raise
+        return db.query_records(sql, params=params, max_rows=max_rows)
 
 
 def _snapshot_date_bounds(org_id: str) -> dict[str, date]:
@@ -421,6 +446,76 @@ def _default_periods(
         "previous_start_date": previous_start.isoformat(),
         "previous_end_date": previous_end.isoformat(),
         "period_anchor_date": anchor_date.isoformat(),
+    }
+
+
+def _month_start(value: date) -> date:
+    return date(value.year, value.month, 1)
+
+
+def _month_display(value: date) -> str:
+    return f"{MONTH_ABBREVIATIONS[value.month - 1]} {value.year}"
+
+
+def _month_span_count(start_value: str | date, end_value: str | date) -> int:
+    start = _parse_date(start_value)
+    end = _parse_date(end_value)
+    if start is None or end is None or start >= end:
+        return 1
+    display_end = end - timedelta(days=1)
+    start_month = _month_start(start)
+    end_month = _month_start(display_end)
+    return max(
+        1,
+        (end_month.year - start_month.year) * 12 + end_month.month - start_month.month + 1,
+    )
+
+
+def _default_monthly_trend_periods(
+    org_id: str,
+    start_date: str | None,
+    end_date: str | None,
+) -> dict[str, Any]:
+    _ = org_id
+    parsed_start = _parse_date(start_date)
+    parsed_end = _parse_date(end_date)
+    default_used = parsed_start is None and parsed_end is None
+
+    if default_used:
+        current_month_start = _month_start(date.today())
+        parsed_end = current_month_start
+        parsed_start = _add_months(parsed_end, -DEFAULT_MONTHLY_TREND_COMPLETED_MONTHS)
+        date_note = "default previous 3 completed months"
+    else:
+        today_month_start = _month_start(date.today())
+        if parsed_end is None:
+            parsed_end = today_month_start
+            date_note = "custom start date with default current-month cutoff"
+        elif parsed_start is None:
+            parsed_start = _add_months(parsed_end, -DEFAULT_MONTHLY_TREND_COMPLETED_MONTHS)
+            date_note = "default 3-month lookback ending before supplied end date"
+        else:
+            date_note = "custom date range"
+
+    if parsed_start is None or parsed_end is None:
+        raise ValueError("start_date and end_date could not be resolved.")
+    if parsed_start >= parsed_end:
+        raise ValueError("start_date must be earlier than end_date.")
+
+    display_end = parsed_end - timedelta(days=1)
+    display_start_month = _month_display(parsed_start)
+    display_end_month = _month_display(display_end)
+    display_label = f"{display_start_month} through {display_end_month}"
+    return {
+        "start_date": parsed_start.isoformat(),
+        "end_date": parsed_end.isoformat(),
+        "display_start_month": display_start_month,
+        "display_end_month": display_end_month,
+        "display_label": display_label,
+        "label": display_label,
+        "date_note": date_note,
+        "default_used": default_used,
+        "end_date_is_exclusive": True,
     }
 
 
@@ -1146,6 +1241,194 @@ def _source_text_type_breakdown(rows: list[dict[str, Any]]) -> list[dict[str, An
     return source_rows
 
 
+def _safe_section_error(error: Exception) -> str:
+    message = str(error).replace("\n", " ").strip()
+    if "[SQL:" in message:
+        message = message.split("[SQL:", 1)[0].strip()
+    if "(Background on this error" in message:
+        message = message.split("(Background on this error", 1)[0].strip()
+    return message[:300] or "Section query failed."
+
+
+def _run_monthly_trend_section(
+    *,
+    section_name: str,
+    sql: str,
+    params: dict[str, Any],
+    max_rows: int,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    try:
+        return {
+            "section_name": section_name,
+            "rows": _query_records(
+                sql,
+                params,
+                max_rows=max_rows,
+                timeout_seconds=timeout_seconds,
+            ),
+            "error": None,
+        }
+    except Exception as exc:  # noqa: BLE001 - section failures stay isolated.
+        return {
+            "section_name": section_name,
+            "rows": [],
+            "error": _safe_section_error(exc),
+        }
+
+
+def _latest_month_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not rows:
+        return None
+    return max(rows, key=lambda row: str(row.get("month_start") or ""))
+
+
+def _top_latest_group(
+    rows: list[dict[str, Any]],
+    *,
+    name_field: str,
+) -> dict[str, Any] | None:
+    latest_month = str(((_latest_month_row(rows) or {}).get("month_start")) or "")
+    if not latest_month:
+        return None
+
+    totals_by_name: dict[str, int] = {}
+    for row in rows:
+        group_name = str(row.get(name_field) or "").strip()
+        if not group_name:
+            continue
+        totals_by_name[group_name] = totals_by_name.get(group_name, 0) + (
+            _int_or_none(row.get("lead_count")) or 0
+        )
+
+    latest_rows = [
+        row
+        for row in rows
+        if str(row.get("month_start") or "") == latest_month
+        and str(row.get(name_field) or "").strip()
+    ]
+    if not latest_rows:
+        return None
+
+    return sorted(
+        latest_rows,
+        key=lambda row: (
+            -(_int_or_none(row.get("lead_count")) or 0),
+            -totals_by_name.get(str(row.get(name_field) or "").strip(), 0),
+            str(row.get(name_field) or "").strip(),
+        ),
+    )[0]
+
+
+def _monthly_trend_summary(
+    overall_rows: list[dict[str, Any]],
+    revenue_rows: list[dict[str, Any]],
+    appointment_rows: list[dict[str, Any]],
+    source_rows: list[dict[str, Any]],
+    profile_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {}
+
+    latest_overall = _latest_month_row(overall_rows)
+    if latest_overall:
+        summary.update(
+            {
+                "latest_month_label": latest_overall.get("month_label"),
+                "latest_lead_count": _int_or_none(latest_overall.get("lead_count")),
+                "previous_lead_count": _int_or_none(
+                    latest_overall.get("previous_month_lead_count")
+                ),
+                "latest_lead_change": _int_or_none(latest_overall.get("lead_count_change")),
+                "latest_lead_percentage_change": _number_or_none(
+                    latest_overall.get("percentage_change")
+                ),
+            }
+        )
+
+    if overall_rows:
+        highest_lead_row = max(
+            overall_rows,
+            key=lambda row: (
+                _int_or_none(row.get("lead_count")) or 0,
+                str(row.get("month_start") or ""),
+            ),
+        )
+        summary.update(
+            {
+                "highest_lead_month_label": highest_lead_row.get("month_label"),
+                "highest_lead_count": _int_or_none(highest_lead_row.get("lead_count")),
+            }
+        )
+
+    latest_revenue = _latest_month_row(revenue_rows)
+    if latest_revenue:
+        summary.update(
+            {
+                "latest_revenue": _number_or_none(
+                    latest_revenue.get("net_collected_amount")
+                ),
+                "previous_revenue": _number_or_none(
+                    latest_revenue.get("previous_month_net_collected_amount")
+                ),
+                "latest_revenue_change": _number_or_none(
+                    latest_revenue.get("revenue_change")
+                ),
+                "latest_revenue_percentage_change": _number_or_none(
+                    latest_revenue.get("percentage_change")
+                ),
+            }
+        )
+
+    latest_appointment = _latest_month_row(appointment_rows)
+    if latest_appointment:
+        summary.update(
+            {
+                "latest_booked_lead_count": _int_or_none(
+                    latest_appointment.get("booked_lead_count")
+                ),
+                "latest_appointment_count": _int_or_none(
+                    latest_appointment.get("appointment_count")
+                ),
+                "latest_completed_call_count": _int_or_none(
+                    latest_appointment.get("completed_call_count")
+                ),
+                "latest_no_show_count": _int_or_none(
+                    latest_appointment.get("no_show_count")
+                ),
+                "latest_completed_call_rate": _number_or_none(
+                    latest_appointment.get("completed_call_rate")
+                ),
+                "latest_no_show_rate": _number_or_none(
+                    latest_appointment.get("no_show_rate")
+                ),
+            }
+        )
+
+    latest_source = _top_latest_group(source_rows, name_field="source_name")
+    if latest_source:
+        summary.update(
+            {
+                "latest_top_source": latest_source.get("source_name"),
+                "latest_top_source_lead_count": _int_or_none(
+                    latest_source.get("lead_count")
+                ),
+            }
+        )
+
+    latest_profile = _top_latest_group(profile_rows, name_field="profile_value")
+    if latest_profile:
+        summary.update(
+            {
+                "latest_top_profile": latest_profile.get("profile_value"),
+                "latest_top_profile_lead_count": _int_or_none(
+                    latest_profile.get("lead_count")
+                ),
+            }
+        )
+
+    return summary
+
+
 def _error_response(tool_name: str, error: Exception) -> str:
     return _json_response(
         {
@@ -1687,6 +1970,238 @@ SELECT
 FROM unioned u
 CROSS JOIN totals t
 ORDER BY u.stage_order ASC
+"""
+
+MONTHLY_LEAD_TREND_SQL = """
+WITH monthly AS (
+  SELECT
+    DATE_TRUNC('month', dls.lead_created_at)::date AS month_start,
+    TO_CHAR(DATE_TRUNC('month', dls.lead_created_at)::date, 'Mon YYYY') AS month_label,
+    COUNT(*)::int AS lead_count
+  FROM diagnostic_lead_snapshot dls
+  WHERE dls.clerk_org_id = :org_id
+    AND dls.lead_created_at >= CAST(:start_date AS date)
+    AND dls.lead_created_at < CAST(:end_date AS date)
+  GROUP BY 1, 2
+),
+enriched AS (
+  SELECT
+    month_start,
+    month_label,
+    lead_count,
+    LAG(lead_count) OVER (ORDER BY month_start) AS previous_month_lead_count
+  FROM monthly
+)
+SELECT
+  month_start,
+  month_label,
+  lead_count,
+  previous_month_lead_count,
+  CASE
+    WHEN previous_month_lead_count IS NULL THEN NULL
+    ELSE lead_count - previous_month_lead_count
+  END AS lead_count_change,
+  ROUND(
+    100.0 * (lead_count - previous_month_lead_count)
+    / NULLIF(previous_month_lead_count, 0),
+    2
+  ) AS percentage_change,
+  SUM(lead_count) OVER ()::int AS total_matching_leads
+FROM enriched
+ORDER BY month_start ASC
+"""
+
+MONTHLY_REVENUE_TREND_SQL = """
+WITH monthly AS (
+  SELECT
+    DATE_TRUNC('month', dls.lead_created_at)::date AS month_start,
+    TO_CHAR(DATE_TRUNC('month', dls.lead_created_at)::date, 'Mon YYYY') AS month_label,
+    COALESCE(SUM(dls.paid_payment_count), 0)::int AS paid_payment_count,
+    COALESCE(SUM(dls.net_collected_amount), 0)::numeric(12,2) AS net_collected_amount
+  FROM diagnostic_lead_snapshot dls
+  WHERE dls.clerk_org_id = :org_id
+    AND dls.lead_created_at >= CAST(:start_date AS date)
+    AND dls.lead_created_at < CAST(:end_date AS date)
+  GROUP BY 1, 2
+),
+enriched AS (
+  SELECT
+    month_start,
+    month_label,
+    paid_payment_count,
+    net_collected_amount,
+    LAG(net_collected_amount) OVER (ORDER BY month_start) AS previous_month_net_collected_amount
+  FROM monthly
+)
+SELECT
+  month_start,
+  month_label,
+  paid_payment_count,
+  net_collected_amount,
+  previous_month_net_collected_amount,
+  CASE
+    WHEN previous_month_net_collected_amount IS NULL THEN NULL
+    ELSE net_collected_amount - previous_month_net_collected_amount
+  END AS revenue_change,
+  ROUND(
+    100.0 * (net_collected_amount - previous_month_net_collected_amount)
+    / NULLIF(previous_month_net_collected_amount, 0),
+    2
+  ) AS percentage_change
+FROM enriched
+ORDER BY month_start ASC
+"""
+
+MONTHLY_APPOINTMENT_TREND_SQL = """
+SELECT
+  DATE_TRUNC('month', dls.lead_created_at)::date AS month_start,
+  TO_CHAR(DATE_TRUNC('month', dls.lead_created_at)::date, 'Mon YYYY') AS month_label,
+  COUNT(*) FILTER (WHERE dls.appointment_count > 0)::int AS booked_lead_count,
+  COALESCE(SUM(dls.appointment_count), 0)::int AS appointment_count,
+  COALESCE(SUM(dls.completed_call_count), 0)::int AS completed_call_count,
+  COALESCE(SUM(dls.no_show_count), 0)::int AS no_show_count,
+  ROUND(
+    100.0 * COALESCE(SUM(dls.completed_call_count), 0)
+    / NULLIF(COALESCE(SUM(dls.appointment_count), 0), 0),
+    2
+  ) AS completed_call_rate,
+  ROUND(
+    100.0 * COALESCE(SUM(dls.no_show_count), 0)
+    / NULLIF(COALESCE(SUM(dls.appointment_count), 0), 0),
+    2
+  ) AS no_show_rate
+FROM diagnostic_lead_snapshot dls
+WHERE dls.clerk_org_id = :org_id
+  AND dls.lead_created_at >= CAST(:start_date AS date)
+  AND dls.lead_created_at < CAST(:end_date AS date)
+GROUP BY 1, 2
+ORDER BY month_start ASC
+"""
+
+MONTHLY_SOURCE_LEAD_TREND_SQL_TEMPLATE = """
+WITH scoped AS (
+  SELECT
+    DATE_TRUNC('month', dls.lead_created_at)::date AS month_start,
+    TO_CHAR(DATE_TRUNC('month', dls.lead_created_at)::date, 'Mon YYYY') AS month_label,
+    COALESCE(NULLIF(BTRIM(dls.{source_column}), ''), 'Unknown') AS source_name,
+    dls.lead_id AS lead_id
+  FROM diagnostic_lead_snapshot dls
+  WHERE dls.clerk_org_id = :org_id
+    AND dls.lead_created_at >= CAST(:start_date AS date)
+    AND dls.lead_created_at < CAST(:end_date AS date)
+),
+top_sources AS (
+  SELECT
+    source_name,
+    COUNT(DISTINCT lead_id)::int AS total_leads
+  FROM scoped
+  GROUP BY source_name
+  ORDER BY total_leads DESC, source_name ASC
+  LIMIT :source_limit
+),
+monthly_counts AS (
+  SELECT
+    s.month_start,
+    s.month_label,
+    s.source_name,
+    COUNT(DISTINCT s.lead_id)::int AS lead_count
+  FROM scoped s
+  JOIN top_sources ts
+    ON ts.source_name = s.source_name
+  GROUP BY s.month_start, s.month_label, s.source_name
+),
+enriched AS (
+  SELECT
+    month_start,
+    month_label,
+    source_name,
+    lead_count,
+    LAG(lead_count) OVER (
+      PARTITION BY source_name
+      ORDER BY month_start
+    ) AS previous_period_lead_count
+  FROM monthly_counts
+)
+SELECT
+  month_start,
+  month_label,
+  source_name,
+  lead_count,
+  previous_period_lead_count,
+  ROUND(
+    100.0 * (lead_count - previous_period_lead_count)
+    / NULLIF(previous_period_lead_count, 0),
+    2
+  ) AS percentage_change,
+  SUM(lead_count) OVER ()::int AS total_matching_leads
+FROM enriched
+ORDER BY
+  month_start ASC,
+  lead_count DESC,
+  source_name ASC
+"""
+
+MONTHLY_PROFILE_LEAD_TREND_SQL_TEMPLATE = """
+WITH scoped AS (
+  SELECT
+    DATE_TRUNC('month', dls.lead_created_at)::date AS month_start,
+    TO_CHAR(DATE_TRUNC('month', dls.lead_created_at)::date, 'Mon YYYY') AS month_label,
+    COALESCE(NULLIF(BTRIM(dls.{profile_column}), ''), 'Not provided') AS profile_value,
+    dls.lead_id AS lead_id
+  FROM diagnostic_lead_snapshot dls
+  WHERE dls.clerk_org_id = :org_id
+    AND dls.lead_created_at >= CAST(:start_date AS date)
+    AND dls.lead_created_at < CAST(:end_date AS date)
+),
+top_profiles AS (
+  SELECT
+    profile_value,
+    COUNT(DISTINCT lead_id)::int AS total_leads
+  FROM scoped
+  GROUP BY profile_value
+  ORDER BY total_leads DESC, profile_value ASC
+  LIMIT :profile_limit
+),
+monthly_counts AS (
+  SELECT
+    s.month_start,
+    s.month_label,
+    s.profile_value,
+    COUNT(DISTINCT s.lead_id)::int AS lead_count
+  FROM scoped s
+  JOIN top_profiles tp
+    ON tp.profile_value = s.profile_value
+  GROUP BY s.month_start, s.month_label, s.profile_value
+),
+enriched AS (
+  SELECT
+    month_start,
+    month_label,
+    profile_value,
+    lead_count,
+    LAG(lead_count) OVER (
+      PARTITION BY profile_value
+      ORDER BY month_start
+    ) AS previous_period_lead_count
+  FROM monthly_counts
+)
+SELECT
+  month_start,
+  month_label,
+  profile_value,
+  lead_count,
+  previous_period_lead_count,
+  ROUND(
+    100.0 * (lead_count - previous_period_lead_count)
+    / NULLIF(previous_period_lead_count, 0),
+    2
+  ) AS percentage_change,
+  SUM(lead_count) OVER ()::int AS total_matching_leads
+FROM enriched
+ORDER BY
+  month_start ASC,
+  lead_count DESC,
+  profile_value ASC
 """
 
 SOURCE_SNAPSHOT_SQL_TEMPLATE = """
@@ -2553,6 +3068,157 @@ ORDER BY
 """
 
 
+def get_diagnostic_monthly_trend_overview_snapshot(
+    org_id: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    source_basis: str = "first",
+    profile_field: str = "latest_profession",
+    source_limit: int = 10,
+    profile_limit: int = 10,
+) -> dict[str, Any]:
+    try:
+        clean_org_id = _default_org_id(org_id)
+        periods = _default_monthly_trend_periods(clean_org_id, start_date, end_date)
+        safe_source_limit = _safe_limit(source_limit)
+        safe_profile_limit = _safe_limit(profile_limit)
+        source_column = _source_column(source_basis)
+        source_basis_value = str(source_basis or "first").strip().lower()
+        profile_metadata = _profile_field_metadata(profile_field)
+        profile_column = profile_metadata["column"]
+        month_count = _month_span_count(periods["start_date"], periods["end_date"])
+
+        shared_params = {
+            "org_id": clean_org_id,
+            "start_date": periods["start_date"],
+            "end_date": periods["end_date"],
+        }
+        source_sql = MONTHLY_SOURCE_LEAD_TREND_SQL_TEMPLATE.format(
+            source_column=source_column,
+        )
+        profile_sql = MONTHLY_PROFILE_LEAD_TREND_SQL_TEMPLATE.format(
+            profile_column=profile_column,
+        )
+        tasks: dict[str, dict[str, Any]] = {
+            "overall_lead_trend": {
+                "sql": MONTHLY_LEAD_TREND_SQL,
+                "params": shared_params,
+                "max_rows": month_count,
+            },
+            "revenue_trend": {
+                "sql": MONTHLY_REVENUE_TREND_SQL,
+                "params": shared_params,
+                "max_rows": month_count,
+            },
+            "appointment_trend": {
+                "sql": MONTHLY_APPOINTMENT_TREND_SQL,
+                "params": shared_params,
+                "max_rows": month_count,
+            },
+            "source_lead_trend": {
+                "sql": source_sql,
+                "params": {**shared_params, "source_limit": safe_source_limit},
+                "max_rows": safe_source_limit * month_count,
+            },
+            "profile_lead_trend": {
+                "sql": profile_sql,
+                "params": {**shared_params, "profile_limit": safe_profile_limit},
+                "max_rows": safe_profile_limit * month_count,
+            },
+        }
+
+        results: dict[str, list[dict[str, Any]]] = {
+            section_name: [] for section_name in MONTHLY_TREND_SECTION_ORDER
+        }
+        section_errors: dict[str, str] = {}
+        max_workers = min(MONTHLY_TREND_MAX_WORKERS, len(tasks))
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(
+                    _run_monthly_trend_section,
+                    section_name=section_name,
+                    sql=task["sql"],
+                    params=task["params"],
+                    max_rows=task["max_rows"],
+                    timeout_seconds=MONTHLY_TREND_SECTION_TIMEOUT_SECONDS,
+                ): section_name
+                for section_name, task in tasks.items()
+            }
+            for future in as_completed(future_map):
+                section_name = future_map[future]
+                try:
+                    section_result = future.result()
+                except Exception as exc:  # noqa: BLE001 - keep section isolation.
+                    section_errors[section_name] = _safe_section_error(exc)
+                    continue
+
+                if section_result.get("error"):
+                    section_errors[section_name] = str(section_result["error"])
+                else:
+                    results[section_name] = list(section_result.get("rows") or [])
+
+        successful_sections = [
+            section_name
+            for section_name in MONTHLY_TREND_SECTION_ORDER
+            if section_name not in section_errors
+        ]
+        if section_errors and successful_sections:
+            status = "partial_success"
+        elif section_errors:
+            status = "error"
+        else:
+            status = "success"
+
+        warnings = []
+        if section_errors:
+            warnings.append("One or more monthly trend sections were unavailable.")
+
+        row_count = sum(len(rows) for rows in results.values())
+        payload = {
+            "status": status,
+            "tool": "get_diagnostic_monthly_trend_overview_snapshot",
+            "scope_note": SCOPE_NOTE,
+            "row_count": row_count,
+            "period": periods,
+            "source_basis": source_basis_value,
+            "profile_field": profile_metadata["field"],
+            "profile_label": profile_metadata["label"],
+            "source_limit": safe_source_limit,
+            "profile_limit": safe_profile_limit,
+            "overall_lead_trend": results["overall_lead_trend"],
+            "revenue_trend": results["revenue_trend"],
+            "appointment_trend": results["appointment_trend"],
+            "source_lead_trend": results["source_lead_trend"],
+            "profile_lead_trend": results["profile_lead_trend"],
+            "source_trend": results["source_lead_trend"],
+            "profession_trend": results["profile_lead_trend"],
+            "summary_metrics": _monthly_trend_summary(
+                results["overall_lead_trend"],
+                results["revenue_trend"],
+                results["appointment_trend"],
+                results["source_lead_trend"],
+                results["profile_lead_trend"],
+            ),
+            "warnings": warnings,
+            "_diagnostics": {
+                "parallel_execution": True,
+                "max_workers": max_workers,
+                "section_timeout_seconds": MONTHLY_TREND_SECTION_TIMEOUT_SECONDS,
+                "successful_sections": successful_sections,
+                "section_errors": section_errors,
+                "section_order": list(MONTHLY_TREND_SECTION_ORDER),
+                "reporting_cutoff": datetime.now(timezone.utc)
+                .replace(microsecond=0)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            },
+        }
+        return _json_ready(payload)
+    except Exception as exc:  # noqa: BLE001 - public tool payloads should stay structured.
+        return _error_payload("get_diagnostic_monthly_trend_overview_snapshot", exc)
+
+
 def get_diagnostic_funnel_snapshot(
     org_id: str | None = None,
     current_start_date: str | None = None,
@@ -2978,6 +3644,37 @@ def get_diagnostic_text_reason_snapshot(
         return _error_payload("get_diagnostic_text_reason_snapshot", exc)
 
 
+def _get_diagnostic_monthly_trend_overview_snapshot_tool(
+    org_id: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    source_basis: str = "first",
+    profile_field: str = "latest_profession",
+    source_limit: int = 10,
+    profile_limit: int = 10,
+) -> str:
+    """Return a broad monthly trend overview from diagnostic_lead_snapshot.
+
+    Includes overall lead, cohort revenue, appointment/call, source, and
+    profile monthly trends. Dates use lead_created_at cohort logic.
+    """
+
+    try:
+        return _json_response(
+            get_diagnostic_monthly_trend_overview_snapshot(
+                org_id=org_id,
+                start_date=start_date,
+                end_date=end_date,
+                source_basis=source_basis,
+                profile_field=profile_field,
+                source_limit=source_limit,
+                profile_limit=profile_limit,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - tool output should stay JSON.
+        return _error_response("get_diagnostic_monthly_trend_overview_snapshot", exc)
+
+
 def _get_diagnostic_funnel_snapshot_tool(
     org_id: str | None = None,
     current_start_date: str | None = None,
@@ -2986,7 +3683,7 @@ def _get_diagnostic_funnel_snapshot_tool(
     """Return funnel-stage evidence from diagnostic_lead_snapshot.
 
     Dates use lead_created_at cohort logic. If org_id is omitted, the tool uses
-    HERMON_DEFAULT_CLERK_ORG_ID.
+    the active request organization.
     """
 
     try:
@@ -3145,6 +3842,9 @@ def _get_diagnostic_text_reason_snapshot_tool(
         return _error_response("get_diagnostic_text_reason_snapshot", exc)
 
 
+get_diagnostic_monthly_trend_overview_snapshot_tool = tool(
+    "get_diagnostic_monthly_trend_overview_snapshot"
+)(_get_diagnostic_monthly_trend_overview_snapshot_tool)
 get_diagnostic_funnel_snapshot_tool = tool("get_diagnostic_funnel_snapshot")(
     _get_diagnostic_funnel_snapshot_tool
 )
@@ -3165,6 +3865,7 @@ get_diagnostic_text_reason_snapshot_tool = tool("get_diagnostic_text_reason_snap
 )
 
 DIAGNOSTIC_TOOLS = [
+    get_diagnostic_monthly_trend_overview_snapshot_tool,
     get_diagnostic_funnel_snapshot_tool,
     get_diagnostic_source_snapshot_tool,
     get_diagnostic_profile_snapshot_tool,

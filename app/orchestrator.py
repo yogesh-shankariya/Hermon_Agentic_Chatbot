@@ -47,6 +47,98 @@ PROFILE_DIAGNOSTIC_INTENT_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+GENERIC_TREND_DIAGNOSTIC_RE = re.compile(
+    r"\b("
+    r"what\s+trends\s+are\s+you\s+noticing|"
+    r"what\s+are\s+the\s+current\s+trends|"
+    r"what\s+business\s+trends\s+do\s+you\s+see|"
+    r"what\s+is\s+changing\s+in\s+the\s+business|"
+    r"what\s+looks\s+different\s+recently|"
+    r"what\s+should\s+i\s+pay\s+attention\s+to\s+from\s+recent\s+trends"
+    r")\b",
+    re.IGNORECASE,
+)
+DIRECT_METRIC_TREND_RE = re.compile(
+    r"\b("
+    r"lead\s+trend|leads\s+trend|revenue\s+trend|appointment\s+trend|"
+    r"call\s+trend|source\s+trend|profession\s+trend|employment\s+status\s+trend|"
+    r"trend\s+by\s+source|trend\s+by\s+profession|trend\s+by\s+employment\s+status|"
+    r"monthly\s+leads|monthly\s+revenue|monthly\s+appointments|monthly\s+calls"
+    r")\b",
+    re.IGNORECASE,
+)
+ACQUISITION_STATUS_CONVERSION_TERM_RE = re.compile(
+    r"\b("
+    r"won\s+leads?|won[-\s]?lead\s+rate|leads?\s+won|"
+    r"current\s+lead\s+status|lead\s+status\s+breakdown"
+    r")\b",
+    re.IGNORECASE,
+)
+ACQUISITION_ATTRIBUTION_TERM_RE = re.compile(
+    r"\b("
+    r"utm\s+campaign|utm\s+source|utm\s+medium|landing\s+page|"
+    r"provider\s+form|opt-?in\s+source|acquisition\s+source"
+    r")\b",
+    re.IGNORECASE,
+)
+UNSUPPORTED_ACQUISITION_REVENUE_TERM_RE = re.compile(
+    r"\b("
+    r"revenue|payment|payments|paid\s+revenue|net\s+collected|"
+    r"gross\s+paid|contract\s+value|signed\s+value|amount|"
+    r"roas|cost|spend"
+    r")\b",
+    re.IGNORECASE,
+)
+SQL_METRIC_FOLLOW_UP_CAUSAL_RE = re.compile(
+    r"\b("
+    r"why|what\s+caused|what\s+drove|explain|reason\s+for|root\s+cause|"
+    r"what\s+happened|caused|drove|driver|drivers|drop|dropped|decrease|"
+    r"decreased|decline|declined|fall|fell|increase|increased|rise|rose|"
+    r"changed|change|weaker|stronger"
+    r")\b",
+    re.IGNORECASE,
+)
+SQL_METRIC_FOLLOW_UP_REFERENCE_RE = re.compile(
+    r"\b("
+    r"it|this|that|these|those|above|previous|same|metric|trend|drop|dropped|"
+    r"increase|increased|decrease|decreased|revenue|payment|payments|lead|"
+    r"leads|appointment|appointments|contract|contracts|count|amount|value"
+    r")\b",
+    re.IGNORECASE,
+)
+EXPLICIT_DIAGNOSTIC_BASIS_SWITCH_RE = re.compile(
+    r"\b("
+    r"lead[-\s]?created|lead\s+cohort|cohort|cohort\s+performance|"
+    r"diagnostic|business\s+diagnosis|business\s+health|business\s+performance|"
+    r"broader\s+business|across\s+the\s+business|overall\s+business|funnel|"
+    r"source\s+quality|conversion|converting|conversion[-\s]?quality|"
+    r"moneti[sz]ed?\s+weaker|leads?\s+moneti[sz]ed"
+    r")\b",
+    re.IGNORECASE,
+)
+SQL_METRIC_CONTEXT_RE = re.compile(
+    r"\b("
+    r"gross\s+paid\s+revenue|net\s+collected\s+revenue|paid\s+payment|"
+    r"payment\s+date|paid_at|revenue\s+trend|lead\s+trend|lead\s+count|"
+    r"appointment\s+trend|appointment\s+count|contract\s+value|"
+    r"signed\s+contract|revenue|payments?|leads?|appointments?|contracts?|trend"
+    r")\b",
+    re.IGNORECASE,
+)
+SQL_ANALYTICS_SKILLS = {
+    "lead_analytics",
+    "appointment_analytics",
+    "acquisition_analytics",
+    "lead_profile_analytics",
+    "revenue_analytics",
+}
+SQL_METRIC_COMPARISON_RE = re.compile(
+    r"from\s+(?P<previous_value>[^\d\s]*[\d,]+(?:\.\d+)?)\s+in\s+"
+    r"(?P<previous_period>[A-Za-z]{3,9}\s+\d{4})\s+to\s+"
+    r"(?P<current_value>[^\d\s]*[\d,]+(?:\.\d+)?)\s+in\s+"
+    r"(?P<current_period>[A-Za-z]{3,9}\s+\d{4})",
+    re.IGNORECASE,
+)
 
 
 def _model_dump(model: Any) -> dict[str, Any]:
@@ -104,19 +196,189 @@ def _should_force_profile_diagnostic_route(question: str) -> bool:
     )
 
 
+def _should_force_generic_trend_diagnostic_route(question: str) -> bool:
+    clean_question = str(question or "").strip()
+    return bool(
+        GENERIC_TREND_DIAGNOSTIC_RE.search(clean_question)
+        and not DIRECT_METRIC_TREND_RE.search(clean_question)
+    )
+
+
+def _should_force_acquisition_status_sql_route(question: str) -> bool:
+    clean_question = str(question or "").strip()
+    if not clean_question:
+        return False
+    if UNSUPPORTED_ACQUISITION_REVENUE_TERM_RE.search(clean_question):
+        return False
+    return bool(
+        ACQUISITION_STATUS_CONVERSION_TERM_RE.search(clean_question)
+        and ACQUISITION_ATTRIBUTION_TERM_RE.search(clean_question)
+    )
+
+
+def _compact_context_text(value: str, limit: int = 700) -> str:
+    clean_value = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(clean_value) <= limit:
+        return clean_value
+    return clean_value[: limit - 3].rstrip() + "..."
+
+
+def _is_sql_metric_follow_up(question: str) -> bool:
+    clean_question = str(question or "").strip()
+    if not clean_question:
+        return False
+    if EXPLICIT_DIAGNOSTIC_BASIS_SWITCH_RE.search(clean_question):
+        return False
+    return bool(
+        SQL_METRIC_FOLLOW_UP_CAUSAL_RE.search(clean_question)
+        and SQL_METRIC_FOLLOW_UP_REFERENCE_RE.search(clean_question)
+    )
+
+
+def _latest_turn_has_sql_metric_context(turn: dict[str, str]) -> bool:
+    route = str(turn.get("route") or "").strip()
+    selected_skill = str(turn.get("selected_skill") or "").strip()
+    context = "\n".join(
+        str(turn.get(key) or "")
+        for key in ("question", "standalone_question", "answer")
+    )
+
+    has_sql_route = route == RouterRoute.SQL_ANALYTICS.value
+    has_sql_skill = selected_skill in SQL_ANALYTICS_SKILLS
+    has_metric_context = bool(SQL_METRIC_CONTEXT_RE.search(context))
+    inferred_direct_metric_question = bool(
+        DIRECT_METRIC_TREND_RE.search(context)
+        or re.search(
+            r"\b(show|what\s+is|compare)\b.*\b(count|trend|revenue|payments?)\b",
+            context,
+            re.IGNORECASE,
+        )
+    )
+
+    return (
+        has_sql_route or has_sql_skill or inferred_direct_metric_question
+    ) and has_metric_context
+
+
+def _movement_word(question: str, context: str) -> str:
+    text = f"{question}\n{context}".lower()
+    if re.search(
+        r"\b(drop|dropped|decrease|decreased|decline|declined|fall|fell)\b",
+        text,
+    ):
+        return "dropped"
+    if re.search(r"\b(increase|increased|rise|rose|grew|growth)\b", text):
+        return "increased"
+    return "changed"
+
+
+def _metric_label(context: str) -> str:
+    lower_context = context.lower()
+    if "gross paid" in lower_context:
+        return "gross paid revenue by payment date"
+    if "net collected" in lower_context:
+        return "net collected revenue by payment date"
+    if "paid payment" in lower_context:
+        return "paid payment count by payment date"
+    if "signed contract" in lower_context or "contract value" in lower_context:
+        return "signed contract value by contract signed date"
+    if re.search(r"\bleads?\b|\blead count\b", lower_context):
+        return "lead count"
+    if re.search(r"\bappointments?\b|\bbooked calls?\b|\bcalls?\b", lower_context):
+        return "appointment count"
+    if "revenue" in lower_context or "payment" in lower_context:
+        return "revenue by payment date"
+    return "the previous SQL metric"
+
+
+def _basis_phrase(context: str) -> str:
+    lower_context = context.lower()
+    if "revenue" in lower_context or "payment" in lower_context:
+        return "same revenue basis as the previous revenue trend answer"
+    if re.search(r"\bleads?\b|\blead count\b", lower_context):
+        return "same lead-created date basis as the previous lead trend answer"
+    if re.search(r"\bappointments?\b|\bbooked calls?\b|\bcalls?\b", lower_context):
+        return "same appointment timing basis as the previous appointment trend answer"
+    if "contract" in lower_context:
+        return "same contract timing basis as the previous contract trend answer"
+    return "same SQL metric basis as the previous answer"
+
+
+def _build_sql_metric_follow_up_question(
+    current_question: str,
+    latest_turn: dict[str, str],
+) -> str:
+    context = "\n".join(
+        str(latest_turn.get(key) or "")
+        for key in ("question", "standalone_question", "answer")
+    )
+    comparison = SQL_METRIC_COMPARISON_RE.search(context)
+    if comparison:
+        return (
+            f"Explain why {_metric_label(context)} {_movement_word(current_question, context)} "
+            f"from {comparison.group('previous_value')} in {comparison.group('previous_period')} "
+            f"to {comparison.group('current_value')} in {comparison.group('current_period')}, "
+            f"using the {_basis_phrase(context)}."
+        )
+
+    previous_question = _compact_context_text(str(latest_turn.get("question") or ""))
+    previous_answer = _compact_context_text(str(latest_turn.get("answer") or ""))
+    parts = [
+        "Explain this follow-up using the same SQL analytics metric basis and compared periods as the previous answer.",
+    ]
+    if previous_question:
+        parts.append(f"Previous question: {previous_question}")
+    if previous_answer:
+        parts.append(f"Previous answer: {previous_answer}")
+    parts.append(f"Current follow-up: {current_question}")
+    return " ".join(parts)
+
+
+def _should_preserve_latest_sql_metric_context(
+    current_question: str,
+    latest_history: list[dict[str, str]],
+) -> bool:
+    if not latest_history or not _is_sql_metric_follow_up(current_question):
+        return False
+    return _latest_turn_has_sql_metric_context(latest_history[-1])
+
+
 def _apply_router_overrides(
     router_response: RouterResponse,
     *,
     current_question: str,
+    latest_history: list[dict[str, str]],
 ) -> RouterResponse:
-    if router_response.route == RouterRoute.LEAD_360:
-        return router_response
-
     standalone_question = router_response.standalone_question or current_question
     override_question = "\n".join(
         part for part in (current_question, standalone_question) if part
     )
 
+    if _should_force_acquisition_status_sql_route(override_question):
+        return RouterResponse(
+            route=RouterRoute.SQL_ANALYTICS,
+            history_count=router_response.history_count,
+            standalone_question=standalone_question,
+        )
+
+    if router_response.route in {RouterRoute.LEAD_360, RouterRoute.UNSUPPORTED}:
+        return router_response
+
+    if _should_preserve_latest_sql_metric_context(current_question, latest_history):
+        return RouterResponse(
+            route=RouterRoute.SQL_ANALYTICS,
+            history_count=max(1, router_response.history_count),
+            standalone_question=_build_sql_metric_follow_up_question(
+                current_question,
+                latest_history[-1],
+            ),
+        )
+    if _should_force_generic_trend_diagnostic_route(override_question):
+        return RouterResponse(
+            route=RouterRoute.DIAGNOSTIC_ANALYTICS,
+            history_count=router_response.history_count,
+            standalone_question=standalone_question,
+        )
     if _should_force_profile_diagnostic_route(override_question):
         return RouterResponse(
             route=RouterRoute.DIAGNOSTIC_ANALYTICS,
@@ -144,6 +406,12 @@ def _turn_answer(turn: Any) -> str:
     return str(getattr(turn, "answer", ""))
 
 
+def _turn_optional_value(turn: Any, key: str) -> str:
+    if isinstance(turn, dict):
+        return str(turn.get(key) or "")
+    return str(getattr(turn, key, ""))
+
+
 def latest_qa_turns(chat_history: Sequence[Any], limit: int = MAX_ROUTER_HISTORY) -> list[dict[str, str]]:
     """Return normalized latest completed Q&A turns."""
 
@@ -153,7 +421,12 @@ def latest_qa_turns(chat_history: Sequence[Any], limit: int = MAX_ROUTER_HISTORY
         answer = _turn_answer(turn).strip()
         if not question and not answer:
             continue
-        normalized.append({"question": question, "answer": answer})
+        normalized_turn = {"question": question, "answer": answer}
+        for key in ("route", "selected_skill", "standalone_question"):
+            value = _turn_optional_value(turn, key).strip()
+            if value:
+                normalized_turn[key] = value
+        normalized.append(normalized_turn)
     return normalized
 
 
@@ -161,15 +434,20 @@ def _format_router_user_input(current_question: str, history: list[dict[str, str
     if history:
         history_lines = []
         for index, turn in enumerate(history, start=1):
-            history_lines.append(
-                "\n".join(
-                    [
-                        f"Turn {index}",
-                        f"User: {turn['question']}",
-                        f"Assistant: {turn['answer']}",
-                    ]
-                )
+            turn_lines = [f"Turn {index}"]
+            if turn.get("route"):
+                turn_lines.append(f"Route: {turn['route']}")
+            if turn.get("selected_skill"):
+                turn_lines.append(f"Selected skill: {turn['selected_skill']}")
+            if turn.get("standalone_question"):
+                turn_lines.append(f"Standalone question: {turn['standalone_question']}")
+            turn_lines.extend(
+                [
+                    f"User: {turn['question']}",
+                    f"Assistant: {turn['answer']}",
+                ]
             )
+            history_lines.append("\n".join(turn_lines))
         history_text = "\n\n".join(history_lines)
     else:
         history_text = "None"
@@ -305,6 +583,7 @@ def route_question(
     return _apply_router_overrides(
         router_response,
         current_question=current_question,
+        latest_history=history,
     ), history
 
 

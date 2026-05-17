@@ -211,9 +211,9 @@ def validate_sql(query: str) -> str:
 def run_readonly_sql(query: str, params_json: str = "{}") -> str:
     """Execute safe read-only SQL against Postgres and return JSON rows.
 
-    The SQL must use `:org_id` for tenant scope. This tool injects
-    HERMON_DEFAULT_CLERK_ORG_ID as `org_id` and ignores any model-supplied
-    org_id in params_json. Daily, weekly, or monthly trend queries that omit
+    The SQL must use `:org_id` for tenant scope. This tool injects the active
+    request organization as `org_id` and ignores any model-supplied org_id in
+    params_json. Daily, weekly, or monthly trend queries that omit
     start_date/end_date receive application defaults when granularity can be
     inferred from DATE_TRUNC. Non-trend queries that use both :start_date and
     :end_date but omit params receive the previous completed calendar month as
@@ -226,7 +226,7 @@ def run_readonly_sql(query: str, params_json: str = "{}") -> str:
         return _json_response(
             {
                 "ok": False,
-                "error": "Missing HERMON_DEFAULT_CLERK_ORG_ID in environment or .env.",
+                "error": "Missing active organization ID in request context or environment.",
             }
         )
 

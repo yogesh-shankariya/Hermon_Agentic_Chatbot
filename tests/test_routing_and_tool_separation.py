@@ -212,6 +212,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         self.assertNotIn("get_diagnostic_source_quality_snapshot", tool_names)
         self.assertNotIn("get_diagnostic_business_change_snapshot", tool_names)
         self.assertNotIn("get_diagnostic_text_reason_snapshot", tool_names)
+        self.assertNotIn("get_diagnostic_monthly_trend_overview_snapshot", tool_names)
 
     def test_lead_360_agent_has_only_lead_360_tool_and_safe_prompt_rules(self):
         module = self._load_lead_360_builder_with_fakes()
@@ -233,6 +234,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         agent = module.create_diagnostic_agent()
 
         expected_tool_names = [
+            "get_diagnostic_monthly_trend_overview_snapshot",
             "get_diagnostic_funnel_snapshot",
             "get_diagnostic_source_snapshot",
             "get_diagnostic_profile_snapshot",
@@ -258,7 +260,18 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         lead_agent = FailingAgent()
         diagnostic_agent = FailingAgent()
 
-        for question in ["How many leads came last month?", "Show revenue by program."]:
+        questions = [
+            "How many leads came last month?",
+            "Show revenue by program.",
+            "Which source generated the most revenue?",
+            "Show revenue by source.",
+            "Show appointment count by source.",
+            "Show no-show rate by source.",
+            "Show funnel by source.",
+            "Lead trend by source.",
+        ]
+
+        for question in questions:
             with self.subTest(question=question):
                 sql_agent.payloads.clear()
                 router = FakeRouter(
@@ -293,6 +306,38 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             ("Compare lead count in April vs March.", "sql_analytics"),
             ("What is the lead trend?", "sql_analytics"),
             ("What should I pay attention to for my business?", "diagnostic_analytics"),
+            ("What trends are you noticing?", "diagnostic_analytics"),
+            ("What are the current trends?", "diagnostic_analytics"),
+            ("What business trends do you see?", "diagnostic_analytics"),
+            ("What is changing in the business?", "diagnostic_analytics"),
+            ("What looks different recently?", "diagnostic_analytics"),
+            ("What should I pay attention to from recent trends?", "diagnostic_analytics"),
+            ("Show lead trend.", "sql_analytics"),
+            ("Show revenue trend by month.", "sql_analytics"),
+            ("Show appointment trend.", "sql_analytics"),
+            ("Lead trend by source.", "sql_analytics"),
+            ("Which source generated the most revenue?", "sql_analytics"),
+            ("Show revenue by source.", "sql_analytics"),
+            ("Show appointment count by source.", "sql_analytics"),
+            ("Show no-show rate by source.", "sql_analytics"),
+            ("Show funnel by source.", "sql_analytics"),
+            ("Show won leads by UTM campaign.", "sql_analytics"),
+            ("Which UTM campaign produced the most won leads?", "sql_analytics"),
+            ("What is the won lead rate by UTM campaign?", "sql_analytics"),
+            ("Which source has the weakest funnel performance?", "diagnostic_analytics"),
+            ("Which source has the worst funnel performance?", "diagnostic_analytics"),
+            ("Which source is weakest across the funnel?", "diagnostic_analytics"),
+            ("Which source has weak conversion through the funnel?", "diagnostic_analytics"),
+            ("Which source is leaking the most in the funnel?", "diagnostic_analytics"),
+            ("Which source has high leads but weak conversion?", "diagnostic_analytics"),
+            ("Which source books calls but does not convert?", "diagnostic_analytics"),
+            ("Which source completes calls but does not sign?", "diagnostic_analytics"),
+            ("Which source signs but does not pay?", "diagnostic_analytics"),
+            ("what caused revenue drop?", "sql_analytics"),
+            (
+                "Explain why gross paid revenue by payment date dropped from €72,500 in Mar 2026 to €63,000 in Apr 2026",
+                "sql_analytics",
+            ),
             ("Why are completed calls not converting to signed leads?", "diagnostic_analytics"),
             ("After calls, why are people not paying?", "diagnostic_analytics"),
             ("Where are we losing people in the funnel and why?", "diagnostic_analytics"),
@@ -333,6 +378,14 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         self.assertIn('"Lead 360"', ui_text)
         self.assertIn('"Diagnostic Analytics"', ui_text)
         self.assertIn("names.extend", ui_text)
+
+    def test_streamlit_admin_mode_uses_live_org_secret(self):
+        ui_text = (APP_DIR / "ui" / "streamlit_app.py").read_text(encoding="utf-8")
+
+        self.assertIn('USER_ORG_ENV_VAR = "DEMO_ORG_ID"', ui_text)
+        self.assertIn('ADMIN_ORG_ENV_VAR = "LIVE_ORG_ID"', ui_text)
+        self.assertIn('get_runtime_secret("ADMIN_ACCESS_CODE")', ui_text)
+        self.assertIn("get_runtime_secret(ADMIN_ORG_ENV_VAR)", ui_text)
 
     def test_diagnostic_question_bank_excludes_data_quality_prompts(self):
         question_path = (
@@ -431,6 +484,19 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             "Why are completed calls not converting to signed leads?",
             "After calls, why are people not paying?",
             "Where are we losing people in the funnel and why?",
+            "What trends are you noticing?",
+            "What are the current trends?",
+            "What business trends do you see?",
+            "What is changing in the business?",
+            "What looks different recently?",
+            "What should I pay attention to from recent trends?",
+            "Which source has the weakest funnel performance?",
+            "Which source has the worst funnel performance?",
+            "Which source is leaking the most in the funnel?",
+            "Which source has high leads but weak conversion?",
+            "Which source books calls but does not convert?",
+            "Which source completes calls but does not sign?",
+            "Which source signs but does not pay?",
         ]
 
         for question in questions:
@@ -454,6 +520,184 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
                 self.assertEqual(turn["route"], "diagnostic_analytics")
                 self.assertEqual(turn["answer"], "diagnostic answer")
                 self.assertEqual(len(diagnostic_agent.payloads), 1)
+
+    def test_orchestrator_forces_generic_trend_discovery_to_diagnostic_when_router_says_sql(self):
+        orchestrator = self._import_orchestrator()
+        diagnostic_agent = FakeAgent("monthly trend diagnostic answer")
+
+        questions = [
+            "What trends are you noticing?",
+            "What are the current trends?",
+            "What business trends do you see?",
+            "What is changing in the business?",
+            "What looks different recently?",
+            "What should I pay attention to from recent trends?",
+        ]
+
+        for question in questions:
+            with self.subTest(question=question):
+                diagnostic_agent.payloads.clear()
+                turn = orchestrator.answer_user_question(
+                    question,
+                    [],
+                    router=FakeRouter(
+                        {
+                            "route": "sql_analytics",
+                            "history_count": 0,
+                            "standalone_question": question,
+                        }
+                    ),
+                    sql_agent=FailingAgent(),
+                    lead_360_agent=FailingAgent(),
+                    diagnostic_agent=diagnostic_agent,
+                )
+
+                self.assertEqual(turn["route"], "diagnostic_analytics")
+                self.assertEqual(turn["answer"], "monthly trend diagnostic answer")
+                self.assertEqual(turn["standalone_question"], question)
+                self.assertEqual(len(diagnostic_agent.payloads), 1)
+
+    def test_orchestrator_keeps_direct_metric_trends_in_sql(self):
+        orchestrator = self._import_orchestrator()
+        sql_agent = FakeAgent("direct trend sql answer")
+
+        questions = [
+            "Show lead trend.",
+            "Show revenue trend by month.",
+            "Show appointment trend.",
+            "Lead trend by source.",
+            "Monthly leads trend by profession.",
+        ]
+
+        for question in questions:
+            with self.subTest(question=question):
+                sql_agent.payloads.clear()
+                turn = orchestrator.answer_user_question(
+                    question,
+                    [],
+                    router=FakeRouter(
+                        {
+                            "route": "sql_analytics",
+                            "history_count": 0,
+                            "standalone_question": question,
+                        }
+                    ),
+                    sql_agent=sql_agent,
+                    lead_360_agent=FailingAgent(),
+                    diagnostic_agent=FailingAgent(),
+                )
+
+                self.assertEqual(turn["route"], "sql_analytics")
+                self.assertEqual(turn["answer"], "direct trend sql answer")
+                self.assertEqual(len(sql_agent.payloads), 1)
+
+    def test_orchestrator_preserves_sql_revenue_metric_for_causal_follow_up(self):
+        orchestrator = self._import_orchestrator()
+        sql_agent = FakeAgent("payment-period revenue explanation")
+        history = [
+            {
+                "route": "sql_analytics",
+                "selected_skill": "revenue_analytics",
+                "question": "show me revenue trend",
+                "answer": (
+                    "Trend period: Feb 2026 through Apr 2026. Gross paid revenue "
+                    "fell from €72,500 in Mar 2026 to €63,000 in Apr 2026."
+                ),
+            }
+        ]
+
+        turn = orchestrator.answer_user_question(
+            "what caused revenue drop?",
+            history,
+            router=FakeRouter(
+                {
+                    "route": "diagnostic_analytics",
+                    "history_count": 0,
+                    "standalone_question": "What caused revenue to drop?",
+                }
+            ),
+            sql_agent=sql_agent,
+            lead_360_agent=FailingAgent(),
+            diagnostic_agent=FailingAgent(),
+        )
+
+        self.assertEqual(turn["route"], "sql_analytics")
+        self.assertEqual(turn["context_turn_count"], 1)
+        self.assertEqual(turn["answer"], "payment-period revenue explanation")
+        self.assertIn("gross paid revenue by payment date", turn["standalone_question"])
+        self.assertIn("€72,500 in Mar 2026", turn["standalone_question"])
+        self.assertIn("€63,000 in Apr 2026", turn["standalone_question"])
+        self.assertIn("same revenue basis", turn["standalone_question"])
+        self.assertEqual(len(sql_agent.payloads), 1)
+
+    def test_orchestrator_preserves_sql_lead_metric_for_causal_follow_up(self):
+        orchestrator = self._import_orchestrator()
+        sql_agent = FakeAgent("lead trend explanation")
+        history = [
+            {
+                "route": "sql_analytics",
+                "selected_skill": "lead_analytics",
+                "question": "show me lead trend",
+                "answer": "Leads increased from 90 in Mar 2026 to 108 in Apr 2026.",
+            }
+        ]
+
+        turn = orchestrator.answer_user_question(
+            "why did it increase?",
+            history,
+            router=FakeRouter(
+                {
+                    "route": "diagnostic_analytics",
+                    "history_count": 0,
+                    "standalone_question": "Why did it increase?",
+                }
+            ),
+            sql_agent=sql_agent,
+            lead_360_agent=FailingAgent(),
+            diagnostic_agent=FailingAgent(),
+        )
+
+        self.assertEqual(turn["route"], "sql_analytics")
+        self.assertIn(
+            "lead count increased from 90 in Mar 2026 to 108 in Apr 2026",
+            turn["standalone_question"],
+        )
+        self.assertIn("same lead-created date basis", turn["standalone_question"])
+        self.assertEqual(len(sql_agent.payloads), 1)
+
+    def test_orchestrator_allows_explicit_lead_cohort_switch_after_sql_revenue_trend(self):
+        orchestrator = self._import_orchestrator()
+        diagnostic_agent = FakeAgent("lead cohort diagnostic answer")
+        history = [
+            {
+                "route": "sql_analytics",
+                "selected_skill": "revenue_analytics",
+                "question": "show me revenue trend",
+                "answer": "Gross paid revenue by payment date dropped in April.",
+            }
+        ]
+
+        turn = orchestrator.answer_user_question(
+            "what about lead cohort performance, why did April leads monetize weaker?",
+            history,
+            router=FakeRouter(
+                {
+                    "route": "diagnostic_analytics",
+                    "history_count": 1,
+                    "standalone_question": (
+                        "Explain lead-created cohort performance for April leads compared "
+                        "with the previous period, focusing on why April leads monetized weaker."
+                    ),
+                }
+            ),
+            sql_agent=FailingAgent(),
+            lead_360_agent=FailingAgent(),
+            diagnostic_agent=diagnostic_agent,
+        )
+
+        self.assertEqual(turn["route"], "diagnostic_analytics")
+        self.assertEqual(turn["answer"], "lead cohort diagnostic answer")
+        self.assertEqual(len(diagnostic_agent.payloads), 1)
 
     def test_orchestrator_forces_generic_profile_questions_to_sql_when_router_says_diagnostic(self):
         orchestrator = self._import_orchestrator()
@@ -523,6 +767,78 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
                 self.assertEqual(turn["answer"], "profile diagnostic answer")
                 self.assertEqual(turn["standalone_question"], question)
                 self.assertEqual(len(diagnostic_agent.payloads), 1)
+
+    def test_orchestrator_forces_acquisition_status_conversion_to_sql_when_router_says_unsupported(self):
+        orchestrator = self._import_orchestrator()
+        sql_agent = FakeAgent("acquisition sql answer")
+        question = "Show won leads by UTM campaign."
+
+        turn = orchestrator.answer_user_question(
+            question,
+            [],
+            router=FakeRouter(
+                {
+                    "route": "unsupported",
+                    "history_count": 0,
+                    "standalone_question": question,
+                }
+            ),
+            sql_agent=sql_agent,
+            lead_360_agent=FailingAgent(),
+            diagnostic_agent=FailingAgent(),
+        )
+
+        self.assertEqual(turn["route"], "sql_analytics")
+        self.assertEqual(turn["answer"], "acquisition sql answer")
+        self.assertEqual(turn["standalone_question"], question)
+        self.assertEqual(len(sql_agent.payloads), 1)
+
+    def test_orchestrator_forces_acquisition_status_conversion_to_sql_when_router_says_diagnostic(self):
+        orchestrator = self._import_orchestrator()
+        sql_agent = FakeAgent("acquisition sql answer")
+        question = "What is the won lead rate by UTM campaign?"
+
+        turn = orchestrator.answer_user_question(
+            question,
+            [],
+            router=FakeRouter(
+                {
+                    "route": "diagnostic_analytics",
+                    "history_count": 0,
+                    "standalone_question": question,
+                }
+            ),
+            sql_agent=sql_agent,
+            lead_360_agent=FailingAgent(),
+            diagnostic_agent=FailingAgent(),
+        )
+
+        self.assertEqual(turn["route"], "sql_analytics")
+        self.assertEqual(turn["answer"], "acquisition sql answer")
+        self.assertEqual(turn["standalone_question"], question)
+        self.assertEqual(len(sql_agent.payloads), 1)
+
+    def test_orchestrator_keeps_revenue_by_utm_campaign_unsupported(self):
+        orchestrator = self._import_orchestrator()
+        question = "Show revenue by UTM campaign."
+
+        turn = orchestrator.answer_user_question(
+            question,
+            [],
+            router=FakeRouter(
+                {
+                    "route": "unsupported",
+                    "history_count": 0,
+                    "standalone_question": question,
+                }
+            ),
+            sql_agent=FailingAgent(),
+            lead_360_agent=FailingAgent(),
+            diagnostic_agent=FailingAgent(),
+        )
+
+        self.assertEqual(turn["route"], "unsupported")
+        self.assertEqual(turn["trace_messages"], [])
 
     def test_orchestrator_uses_router_history_count_for_single_lead_follow_up(self):
         orchestrator = self._import_orchestrator()
@@ -737,6 +1053,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
 
         fake_diagnostic_tools = types.ModuleType("app.tools.diagnostic_tools")
         fake_diagnostic_tools.DIAGNOSTIC_TOOLS = [
+            SimpleNamespace(name="get_diagnostic_monthly_trend_overview_snapshot"),
             SimpleNamespace(name="get_diagnostic_funnel_snapshot"),
             SimpleNamespace(name="get_diagnostic_source_snapshot"),
             SimpleNamespace(name="get_diagnostic_profile_snapshot"),

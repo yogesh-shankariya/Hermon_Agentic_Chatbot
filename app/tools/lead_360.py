@@ -3285,7 +3285,7 @@ def _get_lead_360_tool(
     By default, full Fathom summary text is included for the latest two calls
     only. If the user explicitly asks for all call summaries, set
     max_full_call_summaries equal to max_fathom_calls.
-    If org_id is omitted, the tool uses HERMON_DEFAULT_CLERK_ORG_ID.
+    If org_id is omitted, the tool uses the active request organization.
     """
 
     payload = get_lead_360(

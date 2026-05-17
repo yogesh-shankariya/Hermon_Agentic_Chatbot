@@ -15,6 +15,7 @@ You will receive:
 
 - Current user question
 - Latest 5 previous Q&A turns, if available
+- Previous turn metadata when available, such as route, selected skill, and standalone question
 
 ## Routes
 
@@ -28,6 +29,9 @@ Examples:
 - What is the appointment no-show rate?
 - Compare lead count in April vs March.
 - What is the lead trend?
+- Show won leads by UTM campaign.
+- Which UTM campaign produced the most won leads?
+- What is the won lead rate by UTM campaign?
 - Which profession generated the most leads?
 - Which profession submitted the most opt-ins?
 - Which employment status is most common?
@@ -54,6 +58,7 @@ Use for broad business health/performance questions, investigation, root-cause a
 Also use for profile conversion quality, recommendation, and root-cause questions, especially profession/work/occupation and employment-status/job-status questions about conversion strength, weak conversion, prioritization, or why a profile group is not converting.
 
 Examples:
+- What is going on?
 - What is going wrong?
 - Why did revenue drop?
 - Can we trust this attribution number?
@@ -62,6 +67,12 @@ Examples:
 - How did we do in April vs March?
 - Are we doing better or worse this month?
 - What should I pay attention to for my business?
+- What trends are you noticing?
+- What are the current trends?
+- What business trends do you see?
+- What is changing in the business?
+- What looks different recently?
+- What should I pay attention to from recent trends?
 - Why are completed calls not converting to signed leads?
 - After calls, why are people not paying?
 - What are the main reasons attended leads do not buy?
@@ -104,15 +115,83 @@ If history_count is greater than 0, standalone_question must include the missing
 
 Do not invent context that is not present in the current question or previous Q&A turns.
 
+## Metric-Continuity Rule For Follow-Up Questions
+
+If the current question asks why, what caused, explain, reason for, root cause, what happened, why did it drop, why did it increase, or similar causal wording, first check whether the latest previous Q&A turn contains a direct SQL analytics metric answer.
+
+If the latest previous answer came from `sql_analytics` and the current question refers to that previous metric using wording such as "it", "this", "that", "drop", "increase", "decrease", "trend", "above", "previous", or repeats the same metric name, preserve the previous metric basis in the standalone question.
+
+Preserve all available previous metric context:
+- metric name
+- amount type, such as gross paid revenue, net collected revenue, paid payment count, signed contract value, lead count, appointment count
+- date field or basis, such as payment date, lead created date, appointment scheduled date, contract signed date
+- period being compared
+- current value
+- previous value
+- absolute change
+- percentage change
+
+In this case, route the follow-up to the same analytics family as the previous metric unless the user explicitly asks to switch to a broader business diagnosis.
+
+For revenue/payment/contract trend follow-ups from SQL analytics, route to `sql_analytics`, not `diagnostic_analytics`, when the previous answer used payment-period revenue, gross paid revenue, net collected revenue by paid_at, paid payment count, refund amount, payment provider, program, or contract/payment tables.
+
+Do not route this follow-up to `diagnostic_analytics` only because it contains "why" or "what caused". The previous metric basis takes priority.
+
+Example:
+
+Previous user question:
+"show me revenue trend"
+
+Previous answer:
+"Trend period: Feb 2026 through Apr 2026. Gross paid revenue fell from €72,500 in Mar 2026 to €63,000 in Apr 2026."
+
+Current user question:
+"what caused revenue drop?"
+
+Correct router output:
+{
+  "route": "sql_analytics",
+  "history_count": 1,
+  "standalone_question": "Explain why gross paid revenue by payment date dropped from €72,500 in Mar 2026 to €63,000 in Apr 2026, using the same revenue basis as the previous revenue trend answer."
+}
+
+Incorrect router output:
+{
+  "route": "diagnostic_analytics",
+  "history_count": 0,
+  "standalone_question": "What caused revenue to drop?"
+}
+
 ## Decision Rules
 
+Route source-level funnel quality questions to `diagnostic_analytics` when the user asks for weakest, worst, poor, weak, underperforming, bottleneck, leaking, or misleading source performance across the funnel.
+
+These questions are diagnostic because they require comparing multiple funnel stages and interpreting source quality, not returning one direct metric.
+
+Examples:
+- Which source has the weakest funnel performance?
+- Which source has the worst funnel performance?
+- Which source is weakest across the funnel?
+- Which source has weak conversion through the funnel?
+- Which source is leaking the most in the funnel?
+- Which source has high leads but weak conversion?
+- Which source books calls but does not convert?
+- Which source completes calls but does not sign?
+- Which source signs but does not pay?
+
 Prefer `sql_analytics` for direct metric reports, tables, trends, counts, lists, and breakdowns.
+
+Route current lead-status conversion by acquisition attributes to `sql_analytics`, not `unsupported`. This includes direct questions such as "Show won leads by UTM campaign", "Which UTM campaign produced the most won leads?", and "What is the won lead rate by UTM campaign?" These are lead-status counts/rates, not revenue attribution.
 
 Prefer `lead_360` only when one specific lead/person is clearly identified.
 
 Prefer `diagnostic_analytics` when the user asks why, what changed, what is wrong, whether data is trustworthy, what action to take, or how the business is doing overall across a period comparison.
 
 Route broad questions like "how are we doing", "how did we do", "are we doing better or worse", "overall performance", or "April compared to March" to `diagnostic_analytics` when the user is asking for business performance rather than one explicit metric.
+
+Route broad trend-discovery questions like "What trends are you noticing?", "What are the current trends?", "What business trends do you see?", "What is changing in the business?", "What looks different recently?", or "What should I pay attention to from recent trends?" to `diagnostic_analytics` when the user is asking what the AI notices across the business rather than asking for one explicit metric trend.
+
+Keep direct single-metric trend questions in `sql_analytics`, including "Show lead trend.", "Show revenue trend by month.", "Show appointment trend.", "Lead trend by source.", and "Monthly leads trend by profession."
 
 Route generic profile count, trend, distribution, and ranking questions about profession/work/occupation or employment status/job status to `sql_analytics`.
 
@@ -125,7 +204,24 @@ Route to `unsupported` when the question requires ad spend, ROAS, cost per lead,
 ## Ambiguous Routing Examples
 
 - "Which source generated the most revenue?" → `sql_analytics`
+- "Show revenue by source." → `sql_analytics`
+- "Show appointment count by source." → `sql_analytics`
+- "Show no-show rate by source." → `sql_analytics`
+- "Show funnel by source." → `sql_analytics`
+- "Lead trend by source." → `sql_analytics`
+- "Show won leads by UTM campaign." → `sql_analytics`
+- "Which UTM campaign produced the most won leads?" → `sql_analytics`
+- "What is the won lead rate by UTM campaign?" → `sql_analytics`
 - "Which source should we scale?" → `diagnostic_analytics`
+- "Which source has the weakest funnel performance?" → `diagnostic_analytics`
+- "Which source has the worst funnel performance?" → `diagnostic_analytics`
+- "Which source is weakest across the funnel?" → `diagnostic_analytics`
+- "Which source has weak conversion through the funnel?" → `diagnostic_analytics`
+- "Which source is leaking the most in the funnel?" → `diagnostic_analytics`
+- "Which source has high leads but weak conversion?" → `diagnostic_analytics`
+- "Which source books calls but does not convert?" → `diagnostic_analytics`
+- "Which source completes calls but does not sign?" → `diagnostic_analytics`
+- "Which source signs but does not pay?" → `diagnostic_analytics`
 - "Which profession submitted the most opt-ins?" → `sql_analytics`
 - "Which profession generated the most leads?" → `sql_analytics`
 - "Which employment status is most common?" → `sql_analytics`
@@ -157,6 +253,17 @@ Route to `unsupported` when the question requires ad spend, ROAS, cost per lead,
 - "Where are we losing people in the funnel and why?" → `diagnostic_analytics`
 - "Where are we losing people on funnel?" → `diagnostic_analytics`
 - "Why did Vedran not pay?" → `lead_360`
+- "What trends are you noticing?" → `diagnostic_analytics`
+- "What are the current trends?" → `diagnostic_analytics`
+- "What business trends do you see?" → `diagnostic_analytics`
+- "What is changing in the business?" → `diagnostic_analytics`
+- "What looks different recently?" → `diagnostic_analytics`
+- "What should I pay attention to from recent trends?" → `diagnostic_analytics`
+- "Show lead trend." → `sql_analytics`
+- "Show revenue trend by month." → `sql_analytics`
+- "Show appointment trend." → `sql_analytics`
+- "Lead trend by source." → `sql_analytics`
+- "Monthly leads trend by profession." → `sql_analytics`
 
 ## Output Format
 

@@ -384,10 +384,11 @@ diagnostic_tools = _load_diagnostic_tools_module()
 
 
 class DiagnosticToolLayerTests(unittest.TestCase):
-    def test_exports_six_diagnostic_tools(self):
+    def test_exports_seven_diagnostic_tools(self):
         self.assertEqual(
             [tool.name for tool in diagnostic_tools.DIAGNOSTIC_TOOLS],
             [
+                "get_diagnostic_monthly_trend_overview_snapshot",
                 "get_diagnostic_funnel_snapshot",
                 "get_diagnostic_source_snapshot",
                 "get_diagnostic_profile_snapshot",
@@ -396,6 +397,7 @@ class DiagnosticToolLayerTests(unittest.TestCase):
                 "get_diagnostic_text_reason_snapshot",
             ],
         )
+        self.assertTrue(callable(diagnostic_tools.get_diagnostic_monthly_trend_overview_snapshot))
         self.assertTrue(callable(diagnostic_tools.get_diagnostic_funnel_snapshot))
         self.assertTrue(callable(diagnostic_tools.get_diagnostic_source_snapshot))
         self.assertTrue(callable(diagnostic_tools.get_diagnostic_profile_snapshot))
@@ -409,6 +411,7 @@ class DiagnosticToolLayerTests(unittest.TestCase):
 
         init_text = (APP_DIR / "tools" / "__init__.py").read_text(encoding="utf-8")
         self.assertIn("DIAGNOSTIC_TOOLS", init_text)
+        self.assertIn("get_diagnostic_monthly_trend_overview_snapshot_tool", init_text)
         self.assertIn("get_diagnostic_profile_snapshot_tool", init_text)
         self.assertIn("get_diagnostic_business_change_snapshot_tool", init_text)
         self.assertIn("get_diagnostic_text_reason_snapshot_tool", init_text)
@@ -416,6 +419,159 @@ class DiagnosticToolLayerTests(unittest.TestCase):
     def test_business_table_scope_includes_snapshot(self):
         postgres_text = (APP_DIR / "db" / "postgres.py").read_text(encoding="utf-8")
         self.assertIn('"diagnostic_lead_snapshot"', postgres_text)
+
+    def test_monthly_trend_overview_uses_default_completed_months_and_parallel_sections(self):
+        class MonthlyTrendDb(FakeDb):
+            def query_records(
+                self,
+                sql: str,
+                params: dict | None = None,
+                *,
+                max_rows: int | None = None,
+            ):
+                self.calls.append({"sql": sql, "params": params or {}, "max_rows": max_rows})
+                if "previous_month_lead_count" in sql:
+                    return [
+                        {
+                            "month_start": "2026-02-01",
+                            "month_label": "Feb 2026",
+                            "lead_count": 82,
+                            "previous_month_lead_count": None,
+                            "lead_count_change": None,
+                            "percentage_change": None,
+                            "total_matching_leads": 280,
+                        },
+                        {
+                            "month_start": "2026-03-01",
+                            "month_label": "Mar 2026",
+                            "lead_count": 90,
+                            "previous_month_lead_count": 82,
+                            "lead_count_change": 8,
+                            "percentage_change": Decimal("9.76"),
+                            "total_matching_leads": 280,
+                        },
+                    ]
+                if "previous_month_net_collected_amount" in sql:
+                    return [
+                        {
+                            "month_start": "2026-03-01",
+                            "month_label": "Mar 2026",
+                            "paid_payment_count": 22,
+                            "net_collected_amount": Decimal("72500.00"),
+                            "previous_month_net_collected_amount": Decimal("68500.00"),
+                            "revenue_change": Decimal("4000.00"),
+                            "percentage_change": Decimal("5.84"),
+                        }
+                    ]
+                if "completed_call_rate" in sql:
+                    return [
+                        {
+                            "month_start": "2026-03-01",
+                            "month_label": "Mar 2026",
+                            "booked_lead_count": 76,
+                            "appointment_count": 82,
+                            "completed_call_count": 55,
+                            "no_show_count": 21,
+                            "completed_call_rate": Decimal("67.07"),
+                            "no_show_rate": Decimal("25.61"),
+                        }
+                    ]
+                if "top_sources AS" in sql:
+                    return [
+                        {
+                            "month_start": "2026-03-01",
+                            "month_label": "Mar 2026",
+                            "source_name": "Facebook",
+                            "lead_count": 17,
+                            "previous_period_lead_count": 13,
+                            "percentage_change": Decimal("30.77"),
+                            "total_matching_leads": 30,
+                        }
+                    ]
+                if "top_profiles AS" in sql:
+                    return [
+                        {
+                            "month_start": "2026-03-01",
+                            "month_label": "Mar 2026",
+                            "profile_value": "Student",
+                            "lead_count": 20,
+                            "previous_period_lead_count": 14,
+                            "percentage_change": Decimal("42.86"),
+                            "total_matching_leads": 34,
+                        }
+                    ]
+                raise AssertionError("Unexpected monthly trend SQL")
+
+        fake_db = MonthlyTrendDb()
+        expected_end = diagnostic_tools.date.today().replace(day=1)
+        expected_start = diagnostic_tools._add_months(expected_end, -3)
+
+        with patch.object(diagnostic_tools, "get_db", return_value=fake_db):
+            result = diagnostic_tools.get_diagnostic_monthly_trend_overview_snapshot(
+                org_id="org_1"
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["tool"], "get_diagnostic_monthly_trend_overview_snapshot")
+        self.assertEqual(result["period"]["start_date"], expected_start.isoformat())
+        self.assertEqual(result["period"]["end_date"], expected_end.isoformat())
+        self.assertEqual(result["period"]["date_note"], "default previous 3 completed months")
+        self.assertTrue(result["period"]["end_date_is_exclusive"])
+        self.assertEqual(result["source_basis"], "first")
+        self.assertEqual(result["profile_field"], "latest_profession")
+        self.assertEqual(result["source_lead_trend"], result["source_trend"])
+        self.assertEqual(result["profile_lead_trend"], result["profession_trend"])
+        self.assertEqual(result["summary_metrics"]["latest_lead_count"], 90)
+        self.assertEqual(result["summary_metrics"]["latest_revenue"], 72500.0)
+        self.assertEqual(result["_diagnostics"]["parallel_execution"], True)
+        self.assertEqual(result["_diagnostics"]["max_workers"], 4)
+        self.assertEqual(result["_diagnostics"]["section_errors"], {})
+        self.assertEqual(
+            result["_diagnostics"]["successful_sections"],
+            [
+                "overall_lead_trend",
+                "revenue_trend",
+                "appointment_trend",
+                "source_lead_trend",
+                "profile_lead_trend",
+            ],
+        )
+        self.assertEqual(len(fake_db.calls), 5)
+        for call in fake_db.calls:
+            self.assertEqual(call["params"]["org_id"], "org_1")
+            self.assertEqual(call["params"]["start_date"], expected_start.isoformat())
+            self.assertEqual(call["params"]["end_date"], expected_end.isoformat())
+            self.assertNotIn("/ 100", call["sql"])
+        self.assertTrue(any("dls.first_source" in call["sql"] for call in fake_db.calls))
+        self.assertTrue(any("dls.latest_profession" in call["sql"] for call in fake_db.calls))
+
+    def test_monthly_trend_overview_returns_partial_success_for_section_failure(self):
+        class PartialMonthlyTrendDb(FakeDb):
+            def query_records(
+                self,
+                sql: str,
+                params: dict | None = None,
+                *,
+                max_rows: int | None = None,
+            ):
+                self.calls.append({"sql": sql, "params": params or {}, "max_rows": max_rows})
+                if "top_profiles AS" in sql:
+                    raise RuntimeError("profile section unavailable")
+                return [{"month_start": "2026-03-01", "month_label": "Mar 2026"}]
+
+        fake_db = PartialMonthlyTrendDb()
+
+        with patch.object(diagnostic_tools, "get_db", return_value=fake_db):
+            result = diagnostic_tools.get_diagnostic_monthly_trend_overview_snapshot(
+                org_id="org_1",
+                start_date="2026-02-01",
+                end_date="2026-05-01",
+            )
+
+        self.assertEqual(result["status"], "partial_success")
+        self.assertEqual(result["profile_lead_trend"], [])
+        self.assertIn("profile_lead_trend", result["_diagnostics"]["section_errors"])
+        self.assertIn("One or more monthly trend sections", result["warnings"][0])
 
     def test_funnel_snapshot_uses_default_six_month_period_from_snapshot_anchor(self):
         fake_db = FakeDb(rows=_sample_funnel_rows(), drop_rows=_sample_drop_reconciliation_rows())
@@ -652,6 +808,18 @@ class DiagnosticToolLayerTests(unittest.TestCase):
             "For broad funnel leakage questions, always show the mutually exclusive final-stage funnel table first.",
             prompt_text,
         )
+        self.assertIn("get_diagnostic_monthly_trend_overview_snapshot", prompt_text)
+        self.assertIn("Generic Monthly Trend Overview", prompt_text)
+        self.assertIn("Trend period:", prompt_text)
+        self.assertIn("| Month | Lead count | Previous month | % change |", prompt_text)
+        self.assertIn("| Month | Paid payments | Revenue | Previous month | % change |", prompt_text)
+        self.assertIn(
+            "| Month | Booked leads | Appointments | Completed calls | No-shows | Completed-call rate |",
+            prompt_text,
+        )
+        self.assertIn("| Source | <Month 1> | <Month 2> | <Month 3> |", prompt_text)
+        self.assertIn("| Profession | <Month 1> | <Month 2> | <Month 3> |", prompt_text)
+        self.assertIn("Do not show full funnel stage tables", prompt_text)
         self.assertIn("Do not mix activity record counts into the main stuck-group table.", prompt_text)
         self.assertIn("The `Total` row must equal the sum of the five mutually exclusive stage rows", prompt_text)
         self.assertIn("If `get_diagnostic_funnel_snapshot.status` is `validation_failed`", prompt_text)
@@ -1372,6 +1540,21 @@ class DiagnosticToolLayerTests(unittest.TestCase):
             diagnostic_tools.FUNNEL_SQL,
             diagnostic_tools.DROP_RECONCILIATION_SQL,
             diagnostic_tools.STUCK_GROUP_FUNNEL_SQL,
+            diagnostic_tools.MONTHLY_LEAD_TREND_SQL,
+            diagnostic_tools.MONTHLY_REVENUE_TREND_SQL,
+            diagnostic_tools.MONTHLY_APPOINTMENT_TREND_SQL,
+            diagnostic_tools.MONTHLY_SOURCE_LEAD_TREND_SQL_TEMPLATE.format(
+                source_column="first_source"
+            ),
+            diagnostic_tools.MONTHLY_SOURCE_LEAD_TREND_SQL_TEMPLATE.format(
+                source_column="last_source"
+            ),
+            diagnostic_tools.MONTHLY_PROFILE_LEAD_TREND_SQL_TEMPLATE.format(
+                profile_column="latest_profession"
+            ),
+            diagnostic_tools.MONTHLY_PROFILE_LEAD_TREND_SQL_TEMPLATE.format(
+                profile_column="latest_employment_status"
+            ),
             diagnostic_tools.SOURCE_SNAPSHOT_SQL_TEMPLATE.format(source_column="first_source"),
             diagnostic_tools.SOURCE_SNAPSHOT_SQL_TEMPLATE.format(source_column="last_source"),
             diagnostic_tools.PROFILE_SNAPSHOT_SQL_TEMPLATE.format(
