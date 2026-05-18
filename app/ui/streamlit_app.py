@@ -2017,7 +2017,7 @@ def render_process_trace(turn: dict[str, Any]) -> None:
 
 
 def should_show_reference_sections() -> bool:
-    return str(resolve_access_context().get("mode") or "") == "Admin"
+    return True
 
 
 def render_answer(turn: dict[str, Any], *, stream: bool = False) -> None:

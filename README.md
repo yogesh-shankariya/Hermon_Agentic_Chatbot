@@ -18,6 +18,15 @@ HERMON_DATABASE_URL="postgresql+psycopg://..."
 HERMON_DEFAULT_CLERK_ORG_ID="..."
 ```
 
+For the Streamlit UI access modes, configure these locally in `.env` or
+Streamlit secrets:
+
+```bash
+DEMO_ORG_ID="..."
+LIVE_ORG_ID="..."
+ADMIN_ACCESS_CODE="..."
+```
+
 Optional `.env` value:
 
 ```bash
@@ -29,6 +38,26 @@ Run the Streamlit chat UI:
 ```bash
 streamlit run app/ui/streamlit_app.py
 ```
+
+### Streamlit Community Cloud secrets
+
+Do not upload `.env` to Streamlit Community Cloud. Instead, open the app's
+settings in Streamlit Community Cloud and paste the same values into
+**Secrets** as top-level TOML keys:
+
+```toml
+OPENAI_API_KEY = "..."
+HERMON_DATABASE_URL = "postgresql+psycopg://..."
+HERMON_DEFAULT_CLERK_ORG_ID = "..."
+
+DEMO_ORG_ID = "..."
+LIVE_ORG_ID = "..."
+ADMIN_ACCESS_CODE = "..."
+```
+
+The Streamlit UI reads `DEMO_ORG_ID`, `LIVE_ORG_ID`, and `ADMIN_ACCESS_CODE`
+from `st.secrets` first, then falls back to environment variables for local
+development. Keep local `.streamlit/secrets.toml` and `.env` files out of git.
 
 ## Project Structure
 
