@@ -108,6 +108,23 @@ class SqlToolDateDefaultTests(unittest.TestCase):
         self.assertIn("use a monthly lead creation trend by default", lead_skill)
         self.assertIn("previous 3 completed months", lead_skill)
 
+    def test_new_leads_with_date_means_created_leads_not_status(self):
+        lead_skill = (APP_DIR / "skills" / "modules" / "lead_analytics.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            'When the user asks for "new leads" with a date or date range',
+            lead_skill,
+        )
+        self.assertIn("This matches the dashboard \"New Leads\" metric.", lead_skill)
+        self.assertIn("Use `l.created_at` and do not filter by current pipeline status.", lead_skill)
+        self.assertIn("Europe/Amsterdam local dates", lead_skill)
+        self.assertNotIn(
+            'When the user asks for "new leads today", "new leads this week", or "new leads this month", combine',
+            lead_skill,
+        )
+
     def test_non_trend_start_end_defaults_to_previous_completed_month(self):
         module = _load_sql_tools_module()
 
