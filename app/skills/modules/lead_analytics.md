@@ -29,7 +29,8 @@ Use this skill for:
 - High-level lead source enum analysis, such as Calendly, Typeform, landing page, manual, webinar, newsletter, or other.
 - Lead assignment breakdown by owner or assignee.
 - Lead setter breakdown by setter.
-- Lead creation counts and trends by today, week, month, or custom date range.
+- Lead creation counts and trends by today, week, month, specific date, or custom date range.
+- Current New Lead status counts only when the user explicitly asks for leads currently/still in the New Lead status or New Lead pipeline stage.
 
 ## When Not To Use This Skill
 
@@ -351,7 +352,12 @@ Use these mappings:
 | canceled, cancelled | `CANCELED` |
 | rescheduled, re-scheduled | `RESCHEDULED` |
 | partial payment, partly paid, partially paid | `PARTIAL_PAYMENT` |
-| new lead, fresh lead | `NEW_LEAD` |
+| currently in New Lead status, still in New Lead status, New Lead pipeline stage, leads with current status New Lead, status is New Lead | `NEW_LEAD` |
+
+Important New Lead wording rule:
+- Generic phrases like "new leads", "fresh leads", "new leads today", "new leads this week", "new leads this month", "new leads on <date>", "leads came in", "leads created", or "leads generated" mean lead records created during the selected period.
+- Do not map those generic phrases to `ss.role = 'NEW_LEAD'`.
+- Use `ss.role = 'NEW_LEAD'` only when the user explicitly asks for current status, current stage, pipeline status, or leads still/currently in New Lead status.
 
 Important:
 - If the user asks for a status/stage/category, use `ss.role`.
@@ -359,23 +365,46 @@ Important:
 - If the user says "needs follow-up", "need follow-up", "overdue follow-up", "pending action", or "waiting for follow-up", do not use only `ss.role = 'FOLLOW_UP'`. Use operational follow-up logic based on `next_touch_point_at`, excluding terminal statuses.
 - If the user says "fall off", first interpret it as lost/dropped leads only when the question is about status. If the wording suggests funnel leakage or drop-off analysis, route to diagnostic analysis or ask for a clearer funnel stage if required.
 
-## New Leads
+## New Leads / Leads Created
 
-When the user says "new leads" without a date range, interpret it as the normalized status role:
+For normal business reporting, "new leads" means leads created during the selected period.
+
+This includes:
+- new leads today
+- new leads yesterday
+- new leads this week
+- new leads this month
+- new leads on a specific date
+- how many new leads were created
+- leads that came in
+- leads generated
+
+When the user asks for "new leads" with a date or date range, use `l.created_at`.
+This matches the dashboard "New Leads" metric.
+
+Use `l.created_at` and do not filter by current pipeline status.
+
+Date windows should be application-provided as `:start_date` and `:end_date`.
+Interpret user-facing day/month wording as Europe/Amsterdam local dates unless the application provides a different date window.
+
+Use:
+
+```sql
+l.created_at >= :start_date
+AND l.created_at < :end_date
+```
+
+Do not interpret "new leads" as current New Lead pipeline status unless the user explicitly asks for:
+- current New Lead status
+- still in New Lead status
+- New Lead pipeline stage
+- leads whose current status is New Lead
+
+Only in those explicit current-status cases, use:
 
 ```sql
 ss.role = 'NEW_LEAD'
 ```
-
-When the user asks for leads created today, this week, this month, or in another timeframe, use `l.created_at`.
-
-When the user asks for "new leads today", "new leads this week", or "new leads this month", combine:
-
-```sql
-ss.role = 'NEW_LEAD'
-```
-
-with the `l.created_at` timeframe filter.
 
 ## No-Show Leads
 
@@ -714,6 +743,9 @@ WHERE l.clerk_org_id = :org_id
 
 ## Count New Leads
 
+Use this only when the user explicitly asks for leads currently in New Lead status.
+Do not use this for "new leads created", "new leads today", "new leads this month", or "leads came in" questions.
+
 ```sql
 SELECT COUNT(*) AS new_leads
 FROM leads l
@@ -741,12 +773,8 @@ WHERE l.clerk_org_id = :org_id
 ```sql
 SELECT COUNT(*) AS new_leads_created_in_period
 FROM leads l
-LEFT JOIN sales_statuses ss
-  ON ss.id = l.status_id
- AND ss.clerk_org_id = l.clerk_org_id
 WHERE l.clerk_org_id = :org_id
   AND l.is_deleted = false
-  AND ss.role = 'NEW_LEAD'
   AND l.created_at >= :start_date
   AND l.created_at < :end_date;
 ```
