@@ -972,6 +972,7 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             enabled_skills=("lead_analytics",),
             max_tool_rows=20,
         )
+        fake_config.get_org_timezone = lambda org_id: "UTC"
         fake_db = types.ModuleType("app.db")
         fake_db.QueryValidationError = ValueError
         fake_db.get_db = lambda: None

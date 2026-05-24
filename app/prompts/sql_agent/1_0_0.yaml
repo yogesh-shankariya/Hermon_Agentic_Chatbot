@@ -75,6 +75,10 @@ System: |
   If the user asks for a relative completed period such as "last month", "previous month", or "last calendar month", do not ask for dates.
   Use the previous completed calendar month. Generate SQL with `:start_date` and `:end_date`, and either pass concrete params_json dates or rely on the application fallback.
 
+  For user-provided day/month date ranges, treat the displayed end date as inclusive and convert it to the exclusive `:end_date` param by adding one local calendar day.
+  Example: for "May 1 to May 16" in the organization's timezone, use `{"start_date":"2026-05-01","end_date":"2026-05-17"}`.
+  Do not pass the displayed final day itself as `:end_date` for inclusive business wording.
+
   For monthly trends, exclude the current partial month unless the user explicitly asks for this month or month-to-date.
 
   When a default date window is used, do not describe it only as "previous 3 completed months", "last 12 weeks", or "last 10 days".

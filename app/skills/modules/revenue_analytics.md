@@ -14,6 +14,7 @@ Use this skill for:
 
 - Net collected revenue, using paid payments minus succeeded refunds.
 - Gross paid revenue from paid payments.
+- New Cash Collected dashboard KPI, using paid first-payment and deposit payments.
 - Revenue collected by today, week, month, or custom date range.
 - Revenue trends by day, week, month, or custom date range.
 - Revenue breakdowns by currency, payment provider, program, lead source, or payment type.
@@ -67,7 +68,7 @@ Allowed supporting skill usage:
 - Use `acquisition_analytics` as supporting only to understand acquisition terms such as UTM campaign, UTM source, UTM medium, landing page, referrer, provider form, form, or opt-in source.
 - Do not generate revenue by UTM campaign, landing page, referrer, form, or opt-in source unless an approved revenue attribution join is explicitly defined in this skill.
 - Use `appointment_analytics` as supporting only when the user asks to compare revenue with appointment or call metrics.
-- Do not join appointment tables into revenue SQL unless an explicit revenue-to-appointment rule is listed.
+- Do not join appointment tables into revenue SQL unless an explicit revenue-to-appointment rule is listed. Dashboard close-rate and cash-per-call KPIs are explicit revenue-to-appointment rules in this skill.
 
 Conflict rule:
 - If this skill conflicts with a supporting skill, follow `revenue_analytics` for metric logic.
@@ -775,8 +776,21 @@ Default net collected revenue:
 
 - include non-deleted payments where `p.status = 'PAID'`
 - use `p.paid_at` for revenue timing
-- subtract refunds where `r.status = 'SUCCEEDED'`
+- subtract associated succeeded refunds attached to those included paid payments
+- do not subtract refunds for payments outside the included paid base, because those payments are not part of the `PAID` payment total
 - report as a single EUR total unless the user explicitly asks for a currency breakdown
+
+## Dashboard New Cash Collected
+
+When the user asks for "new cash collected", "new cash", "first payments", "deposit payments", or the dashboard New Cash Collected KPI, match the dashboard definition:
+
+- include non-deleted payments where `p.status = 'PAID'`
+- use `p.paid_at` for period timing
+- include only `p.type IN ('FIRST_PAYMENT', 'DEPOSIT')`
+- sum gross paid payment amount
+- do not subtract refunds
+
+This differs from default net collected revenue. New Cash Collected is a gross dashboard KPI for paid first payments and deposits, not net cash after refunds and not first payments only.
 
 ## EUR Currency Reporting Rule
 
@@ -922,6 +936,75 @@ If the user asks for sent-to-signed rate, exclude drafts from the denominator:
 
 ```sql
 c.status IN ('SENT', 'VIEWED', 'SIGNED', 'WITHDRAWN', 'VOIDED')
+```
+
+## Dashboard Close Rate Metrics
+
+When the user asks for the dashboard "close rate", plain "close rate", "closing rate", or "close rate taken", use the dashboard Close Rate (Taken) KPI:
+
+```text
+contract_signed / calls_taken * 100
+```
+
+Where:
+
+- `contract_signed` is signed contracts in the selected period using `c.signed_at`.
+- `calls_taken` is the dashboard-aligned latest-per-lead appointment metric from `appointment_analytics`.
+- Do not use generic contract signed rate (`signed contracts / total contracts`) for dashboard close-rate wording.
+- Do not use `calls_scheduled` as the denominator unless the user explicitly asks for "close rate scheduled".
+
+If the user explicitly asks for "close rate scheduled", use:
+
+```text
+contract_signed / calls_scheduled * 100
+```
+
+## Dashboard Closed Without Call
+
+When the user asks for "closed without call", "signed without appointment", or "contracts without calls", match the dashboard KPI:
+
+- Count signed contracts in the selected period using `c.signed_at`.
+- Build the dashboard appointment set for the same selected period using `a.schedule_time`.
+- Deduplicate appointments to the latest appointment per lead inside the selected period.
+- Count signed contracts whose `lead_id` is not present in that deduped appointment lead set.
+
+```sql
+WITH signed_contracts AS (
+  SELECT
+    c.id AS contract_id,
+    c.lead_id
+  FROM contracts c
+  WHERE c.clerk_org_id = :org_id
+    AND c.is_deleted = false
+    AND c.status = 'SIGNED'
+    AND c.signed_at >= :start_date
+    AND c.signed_at < :end_date
+),
+appointment_base AS (
+  SELECT
+    a.id AS appointment_id,
+    a.lead_id,
+    a.schedule_time,
+    a.created_at
+  FROM appointments a
+  WHERE a.clerk_org_id = :org_id
+    AND a.is_deleted = false
+    AND a.schedule_time >= :start_date
+    AND a.schedule_time < :end_date
+),
+latest_appointment_per_lead AS (
+  SELECT DISTINCT ON (lead_id)
+    appointment_id,
+    lead_id,
+    schedule_time,
+    created_at
+  FROM appointment_base
+  ORDER BY lead_id, schedule_time DESC NULLS LAST, created_at DESC NULLS LAST, appointment_id DESC
+)
+SELECT COUNT(*) FILTER (WHERE lapl.lead_id IS NULL)::int AS closed_without_call
+FROM signed_contracts sc
+LEFT JOIN latest_appointment_per_lead lapl
+  ON lapl.lead_id = sc.lead_id;
 ```
 
 ## Subscription MRR Rules
@@ -1128,27 +1211,32 @@ Use this for default revenue questions.
 ```sql
 WITH paid_payments AS (
   SELECT
-    SUM(p.amount) / 100.0 AS gross_paid_amount
+    p.id AS payment_id,
+    p.clerk_org_id,
+    p.amount
   FROM payments p
   WHERE p.clerk_org_id = :org_id
     AND p.is_deleted = false
     AND p.status = 'PAID'
+), paid_totals AS (
+  SELECT
+    SUM(amount) / 100.0 AS gross_paid_amount
+  FROM paid_payments
 ), succeeded_refunds AS (
   SELECT
     SUM(r.amount) / 100.0 AS refunded_amount
   FROM refunds r
-  JOIN payments p
-    ON p.id = r.payment_id
-   AND p.clerk_org_id = r.clerk_org_id
-   AND p.is_deleted = false
+  JOIN paid_payments pp
+    ON pp.payment_id = r.payment_id
+   AND pp.clerk_org_id = r.clerk_org_id
   WHERE r.clerk_org_id = :org_id
     AND r.status = 'SUCCEEDED'
 )
 SELECT
-  COALESCE(pp.gross_paid_amount, 0) AS gross_paid_amount,
+  COALESCE(pt.gross_paid_amount, 0) AS gross_paid_amount,
   COALESCE(sr.refunded_amount, 0) AS refunded_amount,
-  COALESCE(pp.gross_paid_amount, 0) - COALESCE(sr.refunded_amount, 0) AS net_collected_revenue
-FROM paid_payments pp
+  COALESCE(pt.gross_paid_amount, 0) - COALESCE(sr.refunded_amount, 0) AS net_collected_revenue
+FROM paid_totals pt
 CROSS JOIN succeeded_refunds sr;
 ```
 
@@ -1157,31 +1245,34 @@ CROSS JOIN succeeded_refunds sr;
 ```sql
 WITH paid_payments AS (
   SELECT
-    SUM(p.amount) / 100.0 AS gross_paid_amount
+    p.id AS payment_id,
+    p.clerk_org_id,
+    p.amount
   FROM payments p
   WHERE p.clerk_org_id = :org_id
     AND p.is_deleted = false
     AND p.status = 'PAID'
     AND p.paid_at >= :start_date
     AND p.paid_at < :end_date
+), paid_totals AS (
+  SELECT
+    SUM(amount) / 100.0 AS gross_paid_amount
+  FROM paid_payments
 ), succeeded_refunds AS (
   SELECT
     SUM(r.amount) / 100.0 AS refunded_amount
   FROM refunds r
-  JOIN payments p
-    ON p.id = r.payment_id
-   AND p.clerk_org_id = r.clerk_org_id
-   AND p.is_deleted = false
+  JOIN paid_payments pp
+    ON pp.payment_id = r.payment_id
+   AND pp.clerk_org_id = r.clerk_org_id
   WHERE r.clerk_org_id = :org_id
     AND r.status = 'SUCCEEDED'
-    AND COALESCE(r.refunded_at, r.created_at) >= :start_date
-    AND COALESCE(r.refunded_at, r.created_at) < :end_date
 )
 SELECT
-  COALESCE(pp.gross_paid_amount, 0) AS gross_paid_amount,
+  COALESCE(pt.gross_paid_amount, 0) AS gross_paid_amount,
   COALESCE(sr.refunded_amount, 0) AS refunded_amount,
-  COALESCE(pp.gross_paid_amount, 0) - COALESCE(sr.refunded_amount, 0) AS net_collected_revenue
-FROM paid_payments pp
+  COALESCE(pt.gross_paid_amount, 0) - COALESCE(sr.refunded_amount, 0) AS net_collected_revenue
+FROM paid_totals pt
 CROSS JOIN succeeded_refunds sr;
 ```
 
@@ -1195,6 +1286,23 @@ FROM payments p
 WHERE p.clerk_org_id = :org_id
   AND p.is_deleted = false
   AND p.status = 'PAID';
+```
+
+## New Cash Collected in a Date Range
+
+Use this for the dashboard New Cash Collected KPI.
+
+```sql
+SELECT
+  COALESCE(SUM(p.amount), 0) / 100.0 AS new_cash_collected,
+  COUNT(*)::int AS new_cash_payment_count
+FROM payments p
+WHERE p.clerk_org_id = :org_id
+  AND p.is_deleted = false
+  AND p.status = 'PAID'
+  AND p.type IN ('FIRST_PAYMENT', 'DEPOSIT')
+  AND p.paid_at >= :start_date
+  AND p.paid_at < :end_date;
 ```
 
 ## Paid Revenue by Payment Provider
@@ -1374,7 +1482,169 @@ WHERE c.clerk_org_id = :org_id
   AND c.signed_at < :end_date;
 ```
 
+## Dashboard Close Rate Taken in a Date Range
+
+Use this for plain "close rate", "closing rate", or dashboard "Close Rate (Taken)".
+
+```sql
+WITH signed_contracts AS (
+  SELECT COUNT(*)::int AS contract_signed
+  FROM contracts c
+  WHERE c.clerk_org_id = :org_id
+    AND c.is_deleted = false
+    AND c.status = 'SIGNED'
+    AND c.signed_at >= :start_date
+    AND c.signed_at < :end_date
+),
+appointment_base AS (
+  SELECT
+    a.id AS appointment_id,
+    a.lead_id,
+    a.schedule_time,
+    a.created_at,
+    a.no_show,
+    COALESCE(CAST(outcome.role AS text), 'NO_OUTCOME') AS outcome_role
+  FROM appointments a
+  LEFT JOIN sales_statuses outcome
+    ON outcome.id = a.outcome_id
+   AND outcome.clerk_org_id = a.clerk_org_id
+  WHERE a.clerk_org_id = :org_id
+    AND a.is_deleted = false
+    AND a.schedule_time >= :start_date
+    AND a.schedule_time < :end_date
+),
+latest_appointment_per_lead AS (
+  SELECT DISTINCT ON (lead_id)
+    appointment_id,
+    lead_id,
+    schedule_time,
+    created_at,
+    no_show,
+    outcome_role
+  FROM appointment_base
+  ORDER BY lead_id, schedule_time DESC NULLS LAST, created_at DESC NULLS LAST, appointment_id DESC
+),
+appointment_metrics AS (
+  SELECT
+    COUNT(*) FILTER (
+      WHERE schedule_time <= NOW()
+        AND outcome_role IN ('WON', 'PARTIAL_PAYMENT', 'FOLLOW_UP', 'LOST', 'UNQUALIFIED')
+    )::int AS calls_taken
+  FROM latest_appointment_per_lead
+)
+SELECT
+  sc.contract_signed,
+  am.calls_taken,
+  ROUND(100.0 * sc.contract_signed / NULLIF(am.calls_taken, 0), 2) AS close_rate_taken_percent
+FROM signed_contracts sc
+CROSS JOIN appointment_metrics am;
+```
+
+## Dashboard Revenue KPI Bundle in a Date Range
+
+Use this when the user asks for a dashboard-style bundle such as contracts signed, contracted amount, cash collected, new cash collected, close rate, and show rate.
+
+```sql
+WITH contract_metrics AS (
+  SELECT
+    COUNT(*)::int AS contract_signed,
+    COALESCE(SUM(c.total_value), 0) / 100.0 AS contracted_amount
+  FROM contracts c
+  WHERE c.clerk_org_id = :org_id
+    AND c.is_deleted = false
+    AND c.status = 'SIGNED'
+    AND c.signed_at >= :start_date
+    AND c.signed_at < :end_date
+),
+paid_payment_rows AS (
+  SELECT
+    p.id AS payment_id,
+    p.clerk_org_id,
+    p.amount
+  FROM payments p
+  WHERE p.clerk_org_id = :org_id
+    AND p.is_deleted = false
+    AND p.status = 'PAID'
+    AND p.paid_at >= :start_date
+    AND p.paid_at < :end_date
+),
+paid_payments AS (
+  SELECT COALESCE(SUM(amount), 0) / 100.0 AS gross_paid_amount
+  FROM paid_payment_rows
+),
+succeeded_refunds AS (
+  SELECT COALESCE(SUM(r.amount), 0) / 100.0 AS refunded_amount
+  FROM refunds r
+  JOIN paid_payment_rows pp
+    ON pp.payment_id = r.payment_id
+   AND pp.clerk_org_id = r.clerk_org_id
+  WHERE r.clerk_org_id = :org_id
+    AND r.status = 'SUCCEEDED'
+),
+new_cash AS (
+  SELECT COALESCE(SUM(p.amount), 0) / 100.0 AS new_cash_collected
+  FROM payments p
+  WHERE p.clerk_org_id = :org_id
+    AND p.is_deleted = false
+    AND p.status = 'PAID'
+    AND p.type IN ('FIRST_PAYMENT', 'DEPOSIT')
+    AND p.paid_at >= :start_date
+    AND p.paid_at < :end_date
+),
+appointment_base AS (
+  SELECT
+    a.id AS appointment_id,
+    a.lead_id,
+    a.schedule_time,
+    a.created_at,
+    a.no_show,
+    COALESCE(CAST(outcome.role AS text), 'NO_OUTCOME') AS outcome_role
+  FROM appointments a
+  LEFT JOIN sales_statuses outcome
+    ON outcome.id = a.outcome_id
+   AND outcome.clerk_org_id = a.clerk_org_id
+  WHERE a.clerk_org_id = :org_id
+    AND a.is_deleted = false
+    AND a.schedule_time >= :start_date
+    AND a.schedule_time < :end_date
+),
+latest_appointment_per_lead AS (
+  SELECT DISTINCT ON (lead_id)
+    appointment_id,
+    lead_id,
+    schedule_time,
+    created_at,
+    no_show,
+    outcome_role
+  FROM appointment_base
+  ORDER BY lead_id, schedule_time DESC NULLS LAST, created_at DESC NULLS LAST, appointment_id DESC
+),
+appointment_metrics AS (
+  SELECT
+    COUNT(*)::int AS calls_booked,
+    COUNT(*) FILTER (
+      WHERE schedule_time <= NOW()
+        AND outcome_role IN ('WON', 'PARTIAL_PAYMENT', 'FOLLOW_UP', 'LOST', 'UNQUALIFIED')
+    )::int AS calls_taken
+  FROM latest_appointment_per_lead
+)
+SELECT
+  cm.contract_signed,
+  cm.contracted_amount,
+  pp.gross_paid_amount - sr.refunded_amount AS cash_collected,
+  nc.new_cash_collected,
+  ROUND(100.0 * cm.contract_signed / NULLIF(am.calls_taken, 0), 2) AS close_rate_taken_percent,
+  ROUND(100.0 * am.calls_taken / NULLIF(am.calls_booked, 0), 2) AS show_rate_booked_percent
+FROM contract_metrics cm
+CROSS JOIN paid_payments pp
+CROSS JOIN succeeded_refunds sr
+CROSS JOIN new_cash nc
+CROSS JOIN appointment_metrics am;
+```
+
 ## Contract Signed Rate
+
+Use this only when the user explicitly asks for contract signed rate, signed-contract percentage, or sent-to-signed conversion. Do not use it for dashboard close rate.
 
 ```sql
 SELECT
@@ -1558,8 +1828,8 @@ ORDER BY net_collected_revenue DESC, first_source ASC;
 For a date-range version, use the same joins and source expression, but split the logic into `paid_by_source` and `refunds_by_source` CTEs:
 
 - filter paid revenue with `p.paid_at >= :start_date AND p.paid_at < :end_date`
-- filter succeeded refunds with `COALESCE(r.refunded_at, r.created_at) >= :start_date AND COALESCE(r.refunded_at, r.created_at) < :end_date`
-- `FULL OUTER JOIN` the two CTEs by `source` so refunds completed during the period are included even if the original payment was collected outside the period
+- calculate refunds by joining `refunds` to the paid-payment rows included in `paid_by_source`
+- do not subtract refunds for payments outside the included paid base
 
 For latest-source revenue, use the same pattern but join `last_ms` through `l.last_source_id` and display `last_source`.
 

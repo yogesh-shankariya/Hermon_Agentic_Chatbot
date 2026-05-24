@@ -475,9 +475,285 @@ Use `outcome.role` for normalized appointment outcome analysis.
 
 ## Business Interpretation Rules
 
+## Dashboard-Aligned KPI Metrics
+
+For user-facing business KPI wording, match the dashboard definitions from `app/testing/dashboard_metrics_reference.md`. This section wins over raw appointment row-count examples below.
+
+Use dashboard-aligned logic when the user asks for:
+
+- `booked calls`, `calls booked`, or `appointments booked`
+- `scheduled calls`, `calls scheduled`, or valid scheduled calls
+- `calls taken`, `completed calls`, `attended calls`, or `held calls`
+- `no show`, `no-shows`, missed appointments, rescheduled calls, follow-up, upcoming calls, deposit status, show rate, booking rate, cancel rate, or other dashboard appointment KPIs
+
+Dashboard appointment KPIs are lead-grain metrics, not appointment-row-grain metrics:
+
+- Interpret user-facing day/month date windows in the active organization SQL session timezone, for this org `Asia/Kolkata`. Use `:start_date` inclusive and `:end_date` exclusive with local date params. For inclusive wording like "May 1 to May 16", pass `end_date` as the next local day (`2026-05-17`), not the displayed final day.
+- Filter appointments to the selected `a.schedule_time` range.
+- Keep only non-deleted appointments for the active organization.
+- Deduplicate to the latest appointment per `lead_id` inside the selected period. For dashboard parity, do not add `a.lead_id IS NOT NULL` unless the user explicitly asks to exclude unlinked appointments.
+- Apply the metric-specific predicate after latest-per-lead deduplication.
+
+Dashboard KPI definitions:
+
+- `calls_booked`: count all latest-per-lead rows in the selected appointment period, regardless of outcome. This matches the dashboard "Booked Calls" KPI denominator used by booking rate, Show Rate (Booked), and Cancel Rate.
+- `calls_scheduled`: count latest-per-lead rows where `outcome_role` is not `CANCELED` or `RESCHEDULED`.
+- `calls_taken`: count latest-per-lead rows where `schedule_time <= NOW()` and `outcome_role` is one of `WON`, `PARTIAL_PAYMENT`, `FOLLOW_UP`, `LOST`, or `UNQUALIFIED`.
+- `no_show`: count latest-per-lead rows where `schedule_time <= NOW()` and (`no_show = true` or `outcome_role = 'NO_SHOW'`).
+- `cancelled`: count latest-per-lead rows where `outcome_role = 'CANCELED'`. This is "unique leads whose latest appointment outcome is canceled", not raw canceled appointment rows.
+- `rescheduled`: count latest-per-lead past rows where `outcome_role = 'RESCHEDULED'`.
+- `follow_up`: count latest-per-lead rows where `outcome_role = 'FOLLOW_UP'`, the lead has `next_touch_point_at`, or the lead's current sales status role is `FOLLOW_UP`.
+- `upcoming`: count latest-per-lead rows where `schedule_time > NOW()`.
+- `deposit_by_status`: count latest-per-lead past rows where `outcome_role = 'PARTIAL_PAYMENT'`.
+- `cancel_rate_percent`: `cancelled / calls_booked * 100`, where `calls_booked` is all latest-per-lead rows in the selected appointment period.
+- `booking_rate`: `calls_booked / new_leads * 100`, where `new_leads` is leads created in the selected period.
+- `show_rate_booked_percent`: plain "show rate" and "show rate booked" should use the dashboard card labeled "Show Rate (Booked)": `calls_taken / calls_booked * 100`.
+- `show_rate_scheduled_percent`: use only when the user explicitly asks for "scheduled show rate" or "show rate scheduled": `calls_taken / past scheduled calls * 100`.
+
+Do not use `a.no_show = false` alone as calls-taken logic. A dashboard taken, completed, attended, or held call must first use latest-per-lead deduplication and then require one of the completed outcome roles: `WON`, `PARTIAL_PAYMENT`, `FOLLOW_UP`, `LOST`, or `UNQUALIFIED`.
+
+Raw appointment row counts are still valid only when the user explicitly asks for raw appointments, appointment records, appointment rows, or total appointments. In those cases, count rows in `appointments` and clearly keep row-grain SQL.
+
+Reusable dashboard KPI CTE basis:
+
+```sql
+WITH appointment_base AS (
+  SELECT
+    a.id AS appointment_id,
+    a.lead_id,
+    a.schedule_time,
+    a.created_at,
+    a.no_show,
+    outcome.name AS outcome_name,
+    COALESCE(CAST(outcome.role AS text), 'NO_OUTCOME') AS outcome_role,
+    l.next_touch_point_at,
+    COALESCE(CAST(lead_status.role AS text), 'NO_LEAD_STATUS') AS lead_status_role
+  FROM appointments a
+  LEFT JOIN sales_statuses outcome
+    ON outcome.id = a.outcome_id
+   AND outcome.clerk_org_id = a.clerk_org_id
+  LEFT JOIN leads l
+    ON l.id = a.lead_id
+   AND l.clerk_org_id = a.clerk_org_id
+   AND l.is_deleted = false
+  LEFT JOIN sales_statuses lead_status
+    ON lead_status.id = l.status_id
+   AND lead_status.clerk_org_id = l.clerk_org_id
+  WHERE a.clerk_org_id = :org_id
+    AND a.is_deleted = false
+    AND a.schedule_time >= :start_date
+    AND a.schedule_time < :end_date
+),
+latest_appointment_per_lead AS (
+  SELECT DISTINCT ON (lead_id)
+    appointment_id,
+    lead_id,
+    schedule_time,
+    created_at,
+    no_show,
+    outcome_name,
+    outcome_role,
+    next_touch_point_at,
+    lead_status_role
+  FROM appointment_base
+  ORDER BY lead_id, schedule_time DESC NULLS LAST, created_at DESC NULLS LAST, appointment_id DESC
+)
+```
+
+Dashboard-style booked calls:
+
+```sql
+SELECT COUNT(*)::int AS calls_booked
+FROM latest_appointment_per_lead;
+```
+
+Dashboard-style scheduled calls:
+
+```sql
+SELECT COUNT(*)::int AS calls_scheduled
+FROM latest_appointment_per_lead
+WHERE outcome_role NOT IN ('CANCELED', 'RESCHEDULED');
+```
+
+Dashboard-style calls taken:
+
+```sql
+SELECT COUNT(*)::int AS calls_taken
+FROM latest_appointment_per_lead
+WHERE schedule_time <= NOW()
+  AND outcome_role IN ('WON', 'PARTIAL_PAYMENT', 'FOLLOW_UP', 'LOST', 'UNQUALIFIED');
+```
+
+Dashboard-style no-shows:
+
+```sql
+SELECT COUNT(*)::int AS no_show
+FROM latest_appointment_per_lead
+WHERE schedule_time <= NOW()
+  AND (no_show = true OR outcome_role = 'NO_SHOW');
+```
+
+Dashboard-style cancelled calls:
+
+```sql
+SELECT COUNT(*)::int AS cancelled
+FROM latest_appointment_per_lead
+WHERE outcome_role = 'CANCELED';
+```
+
+Dashboard-style cancel rate:
+
+```sql
+SELECT
+  COUNT(*) FILTER (WHERE outcome_role = 'CANCELED')::int AS cancelled,
+  ROUND(
+    100.0
+    * COUNT(*) FILTER (WHERE outcome_role = 'CANCELED')
+    / NULLIF(COUNT(*), 0),
+    2
+  ) AS cancel_rate_percent
+FROM latest_appointment_per_lead;
+```
+
+Dashboard-style rescheduled calls:
+
+```sql
+SELECT COUNT(*)::int AS rescheduled
+FROM latest_appointment_per_lead
+WHERE schedule_time <= NOW()
+  AND outcome_role = 'RESCHEDULED';
+```
+
+Dashboard-style follow-up:
+
+```sql
+SELECT COUNT(*)::int AS follow_up
+FROM latest_appointment_per_lead
+WHERE outcome_role = 'FOLLOW_UP'
+   OR next_touch_point_at IS NOT NULL
+   OR lead_status_role = 'FOLLOW_UP';
+```
+
+Dashboard-style upcoming calls:
+
+```sql
+SELECT COUNT(*)::int AS upcoming
+FROM latest_appointment_per_lead
+WHERE schedule_time > NOW();
+```
+
+Dashboard-style deposit status:
+
+```sql
+SELECT COUNT(*)::int AS deposit_by_status
+FROM latest_appointment_per_lead
+WHERE schedule_time <= NOW()
+  AND outcome_role = 'PARTIAL_PAYMENT';
+```
+
+Dashboard-style show rate:
+
+- If the user says "show rate" without a denominator, return `show_rate_booked_percent`, matching the dashboard "Show Rate (Booked)" card.
+- If the user explicitly says "scheduled show rate", return `show_rate_scheduled_percent`.
+
+```sql
+SELECT
+  ROUND(
+    100.0
+    * COUNT(*) FILTER (
+        WHERE schedule_time <= NOW()
+          AND outcome_role IN ('WON', 'PARTIAL_PAYMENT', 'FOLLOW_UP', 'LOST', 'UNQUALIFIED')
+      )
+    / NULLIF(COUNT(*), 0),
+    2
+  ) AS show_rate_booked_percent,
+  ROUND(
+    100.0
+    * COUNT(*) FILTER (
+        WHERE schedule_time <= NOW()
+          AND outcome_role IN ('WON', 'PARTIAL_PAYMENT', 'FOLLOW_UP', 'LOST', 'UNQUALIFIED')
+      )
+    / NULLIF(
+        COUNT(*) FILTER (
+          WHERE schedule_time <= NOW()
+            AND outcome_role NOT IN ('CANCELED', 'RESCHEDULED')
+        ),
+        0
+      ),
+    2
+  ) AS show_rate_scheduled_percent
+FROM latest_appointment_per_lead;
+```
+
+For a bundled dashboard-style question like "new leads, booking rate, booked call, scheduled calls, calls taken, no shows in 1st may to may 15", use one SQL statement with the dashboard appointment definitions and lead-created definition:
+
+```sql
+WITH new_leads AS (
+  SELECT COUNT(*)::int AS new_leads
+  FROM leads l
+  WHERE l.clerk_org_id = :org_id
+    AND l.is_deleted = false
+    AND l.created_at >= :start_date
+    AND l.created_at < :end_date
+),
+appointment_base AS (
+  SELECT
+    a.id AS appointment_id,
+    a.lead_id,
+    a.schedule_time,
+    a.created_at,
+    a.no_show,
+    COALESCE(CAST(outcome.role AS text), 'NO_OUTCOME') AS outcome_role
+  FROM appointments a
+  LEFT JOIN sales_statuses outcome
+    ON outcome.id = a.outcome_id
+   AND outcome.clerk_org_id = a.clerk_org_id
+  WHERE a.clerk_org_id = :org_id
+    AND a.is_deleted = false
+    AND a.schedule_time >= :start_date
+    AND a.schedule_time < :end_date
+),
+latest_appointment_per_lead AS (
+  SELECT DISTINCT ON (lead_id)
+    appointment_id,
+    lead_id,
+    schedule_time,
+    created_at,
+    no_show,
+    outcome_role
+  FROM appointment_base
+  ORDER BY lead_id, schedule_time DESC NULLS LAST, created_at DESC NULLS LAST, appointment_id DESC
+),
+appointment_metrics AS (
+  SELECT
+    COUNT(*)::int AS calls_booked,
+    COUNT(*) FILTER (
+      WHERE outcome_role NOT IN ('CANCELED', 'RESCHEDULED')
+    )::int AS calls_scheduled,
+    COUNT(*) FILTER (
+      WHERE schedule_time <= NOW()
+        AND outcome_role IN ('WON', 'PARTIAL_PAYMENT', 'FOLLOW_UP', 'LOST', 'UNQUALIFIED')
+    )::int AS calls_taken,
+    COUNT(*) FILTER (
+      WHERE schedule_time <= NOW()
+        AND (no_show = true OR outcome_role = 'NO_SHOW')
+    )::int AS no_show
+  FROM latest_appointment_per_lead
+)
+SELECT
+  nl.new_leads,
+  ROUND(100.0 * am.calls_booked / NULLIF(nl.new_leads, 0), 2) AS booking_rate_percent,
+  am.calls_booked,
+  am.calls_scheduled,
+  am.calls_taken,
+  am.no_show
+FROM new_leads nl
+CROSS JOIN appointment_metrics am;
+```
+
 ## Appointment Counts
 
-When the user asks how many appointments, count rows in `appointments`:
+When the user explicitly asks for raw appointments, appointment records, appointment rows, or total appointments, count rows in `appointments`:
 
 ```sql
 COUNT(*) AS appointment_count
@@ -489,11 +765,17 @@ Use `a.created_at` only when the user asks when appointments were created, added
 
 ## Scheduled vs Created / Booked Wording
 
-If the user says "appointments scheduled for this month" or "calls scheduled this month", use `a.schedule_time`.
+If the user says "scheduled calls" or "calls scheduled this month", use dashboard-aligned `calls_scheduled`: latest appointment per lead in the selected `a.schedule_time` range, excluding `CANCELED` and `RESCHEDULED`.
+
+If the user explicitly asks for raw appointment rows or appointment records scheduled for a period, use `a.schedule_time`.
 
 If the user says "appointments created this month", "appointments added this month", or "calls booked into the system this month", use `a.created_at`.
 
-If the user simply says "calls booked this month" or "appointments booked this month", default to `a.schedule_time` and treat it as calls scheduled for that month.
+If the user says "calls booked this month", "booked calls this month", or "appointments booked this month", use dashboard-aligned `calls_booked`: all latest-per-lead appointment rows in the selected `a.schedule_time` range, regardless of outcome.
+
+If the user says "cancelled calls", "canceled calls", "cancelled appointment count", or "cancel rate", use dashboard-aligned latest-per-lead logic over the selected `a.schedule_time` range. Count one row per lead only when that lead's latest appointment in the range has `outcome_role = 'CANCELED'`. Do not count raw cancellation rows unless the user explicitly asks for raw appointment records or rows.
+
+If the user says "rescheduled", "follow up", "upcoming", or "deposit" in dashboard KPI context, use the dashboard-aligned latest-per-lead definitions above. Do not count raw appointment rows unless the user explicitly asks for raw appointment records or rows.
 
 ## Upcoming Appointments
 
@@ -513,20 +795,25 @@ When the user asks for past appointments, previous appointments, call history, o
 a.schedule_time < NOW()
 ```
 
-If the user specifically asks for attended, completed, or completed non-no-show calls, use:
+If the user specifically asks for attended, completed, or completed calls, use the dashboard completed outcome roles:
 
 ```sql
-a.schedule_time < NOW()
-AND a.no_show = false
+a.schedule_time <= NOW()
+AND outcome_role IN ('WON', 'PARTIAL_PAYMENT', 'FOLLOW_UP', 'LOST', 'UNQUALIFIED')
 ```
+
+Use the dashboard latest-per-lead CTE before this predicate for dashboard-style `calls_taken`, completed calls, attended calls, or held calls. Do not use `a.no_show = false` alone as proof that a call was taken.
 
 ## No-Show Rate
 
-For appointment no-show rate, prefer the explicit appointment field:
+For dashboard-style no-show counts, use the latest appointment per lead and count past rows where the appointment is explicitly marked no-show or the outcome role is `NO_SHOW`:
 
 ```sql
-a.no_show = true
+schedule_time < NOW()
+AND (no_show = true OR outcome_role = 'NO_SHOW')
 ```
+
+For raw appointment row no-show rate, use `a.no_show = true` only when the user explicitly asks for raw appointment records or appointment rows.
 
 For no-show rate, use past appointments by default because future appointments cannot be no-shows yet.
 
@@ -560,7 +847,7 @@ Use `outcome.name` for exact outcome labels.
 
 Use `outcome.role` for normalized outcome categories.
 
-For no-show reporting, `a.no_show` is more direct than `outcome.role = 'NO_SHOW'`.
+For dashboard-style no-show reporting, use `a.no_show = true` or `outcome.role = 'NO_SHOW'`.
 
 ## Event Type Names
 
@@ -680,7 +967,7 @@ f.call_started_at >= :start_date
 AND f.call_started_at < :end_date
 ```
 
-If the user says "calls booked this month", prefer `a.schedule_time` unless they clearly mean records created in the system.
+If the user says "calls booked this month", use the dashboard-aligned latest-per-lead `calls_booked` pattern over `a.schedule_time` unless they clearly mean records created in the system.
 
 If the user says "appointments created this month" or "calls booked into the system this month", use `a.created_at`.
 
@@ -780,6 +1067,8 @@ ORDER BY a.schedule_time ASC, a.id ASC
 
 ## Count Appointments
 
+Use this only for raw appointments, appointment records, appointment rows, or total appointments.
+
 ```sql
 SELECT COUNT(*) AS appointment_count
 FROM appointments a
@@ -788,6 +1077,8 @@ WHERE a.clerk_org_id = :org_id
 ```
 
 ## Count Appointments Scheduled in a Date Range
+
+Use this only for raw appointment-row counts. For dashboard-style `scheduled calls`, use the latest-per-lead `calls_scheduled` definition.
 
 ```sql
 SELECT COUNT(*) AS appointments_scheduled_in_period
@@ -831,18 +1122,48 @@ WHERE a.clerk_org_id = :org_id
   AND a.schedule_time < NOW();
 ```
 
-## Count Completed Attended Calls
+## Count Dashboard-Style Calls Taken
+
+Use this for "calls taken", "completed calls", "attended calls", or "held calls".
 
 ```sql
-SELECT COUNT(*) AS completed_attended_calls
-FROM appointments a
-WHERE a.clerk_org_id = :org_id
-  AND a.is_deleted = false
-  AND a.schedule_time < NOW()
-  AND a.no_show = false;
+WITH appointment_base AS (
+  SELECT
+    a.id AS appointment_id,
+    a.lead_id,
+    a.schedule_time,
+    a.created_at,
+    a.no_show,
+    COALESCE(CAST(outcome.role AS text), 'NO_OUTCOME') AS outcome_role
+  FROM appointments a
+  LEFT JOIN sales_statuses outcome
+    ON outcome.id = a.outcome_id
+   AND outcome.clerk_org_id = a.clerk_org_id
+  WHERE a.clerk_org_id = :org_id
+    AND a.is_deleted = false
+    AND a.schedule_time >= :start_date
+    AND a.schedule_time < :end_date
+),
+latest_appointment_per_lead AS (
+  SELECT DISTINCT ON (lead_id)
+    appointment_id,
+    lead_id,
+    schedule_time,
+    created_at,
+    no_show,
+    outcome_role
+  FROM appointment_base
+  ORDER BY lead_id, schedule_time DESC NULLS LAST, created_at DESC NULLS LAST, appointment_id DESC
+)
+SELECT COUNT(*)::int AS calls_taken
+FROM latest_appointment_per_lead
+WHERE schedule_time <= NOW()
+  AND outcome_role IN ('WON', 'PARTIAL_PAYMENT', 'FOLLOW_UP', 'LOST', 'UNQUALIFIED');
 ```
 
 ## Appointment No-Show Rate
+
+This is a raw appointment-row no-show rate. For dashboard-style no-show counts, use the latest-per-lead `no_show` definition.
 
 ```sql
 SELECT

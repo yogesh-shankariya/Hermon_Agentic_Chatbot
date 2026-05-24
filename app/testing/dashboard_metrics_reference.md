@@ -73,8 +73,9 @@ Appointment outcome role groups:
 
 Important appointment predicates:
 
+- Booked call: any latest appointment per lead in the selected period, regardless of outcome.
 - Scheduled appointment: latest appointment has no outcome or the outcome is not canceled/rescheduled.
-- Taken call: latest past appointment has a completed/taken outcome.
+- Taken call: latest past appointment has a completed/taken outcome: `WON`, `PARTIAL_PAYMENT`, `FOLLOW_UP`, `LOST`, or `UNQUALIFIED`.
 - No-show: latest past appointment has outcome `NO_SHOW` or has `no_show = true`.
 - Follow-up: latest appointment outcome is follow-up, or lead has `next_touch_point_at`, or lead sales status is follow-up.
 - Deposit: latest past appointment outcome is `PARTIAL_PAYMENT`.
@@ -95,9 +96,9 @@ These keys are defined in `KPI_KEYS` and `KPI_CONFIG`.
 |---|---|---:|---|---|
 | `new_leads` | New Leads | number | Total number of new leads created within the period, based on lead creation date. | Counts `leads` where `created_at` is inside the selected date range and the lead is not deleted. Match user questions like "new leads", "lead count", "leads created", "how many leads came in". |
 | `booking_rate` | Booking Rate | percent | calls_booked / new_leads * 100. | Uses booked calls divided by new leads. Drill-down rows show the booked-call numerator set because the denominator comes from leads. Match "booking rate", "lead to booked call rate", "percent of leads that booked". |
-| `calls_booked` | Booked Calls | number | Unique leads with at least one appointment (any outcome) in the period, using their latest appointment. | Counts unique leads that have at least one appointment in the period. The latest appointment per lead is used after deduplication. Match "booked calls", "calls booked", "appointments booked". |
+| `calls_booked` | Booked Calls | number | Unique leads with at least one appointment (any outcome) in the period, using their latest appointment. | Counts all deduped latest appointments in the selected period. Match "booked calls", "calls booked", "appointments booked". |
 | `calls_scheduled` | Scheduled Calls | number | Unique leads whose latest appointment is NOT cancelled or rescheduled. | Counts deduped latest appointments that are not canceled or rescheduled. Match "scheduled calls", "valid scheduled calls", "non-canceled appointments". |
-| `calls_taken` | Calls Taken | number | Unique leads whose latest past appointment has a completed outcome (won, deposit, no-sale-follow-up, no-sale-lost, no-sale-unqualified). | Counts deduped past appointments whose outcome role is in the taken/completed group. Match "calls taken", "completed calls", "calls attended", "held calls". |
+| `calls_taken` | Calls Taken | number | Unique leads whose latest past appointment has a completed outcome (won, deposit, no-sale-follow-up, no-sale-lost, no-sale-unqualified). | Counts deduped past appointments whose outcome role is `WON`, `PARTIAL_PAYMENT`, `FOLLOW_UP`, `LOST`, or `UNQUALIFIED`. Match "calls taken", "completed calls", "calls attended", "held calls". |
 | `upcoming` | Upcoming | number | Unique leads whose latest appointment is scheduled in the future. | Counts deduped latest appointments where `schedule_time` is greater than now. Match "upcoming calls", "future appointments", "scheduled in future". |
 | `cancelled` | Cancelled | number | Unique leads whose latest appointment outcome is 'canceled'. | Counts deduped latest appointments with outcome role `CANCELED`. Match "cancelled calls", "canceled appointments", "appointments canceled". |
 | `no_show` | No Show | number | Unique leads whose latest past appointment is marked no-show or has outcome 'no-show'. | Counts deduped past appointments with outcome role `NO_SHOW` or `no_show = true`. Match "no show", "no-shows", "missed appointments". |
@@ -111,10 +112,10 @@ These keys are defined in `KPI_KEYS` and `KPI_CONFIG`.
 | `new_cash_collected` | New Cash Collected | currency | Sum of PAID payments of type FIRST_PAYMENT or DEPOSIT in the period. | Sums paid payments where payment type is `FIRST_PAYMENT` or `DEPOSIT`. Match "new cash", "first payments", "deposit payments", "new money collected". |
 | `refunded_amount` | Refunded | currency | Sum of all succeeded refunds with refunded_at in the period. | Sums succeeded refunds where `refunded_at` is inside the selected date range. Match "refunds", "refunded amount", "money refunded". |
 | `show_rate_percent` | Show Rate (Scheduled) | percent | calls_taken / scheduled calls with a past schedule date * 100. | Uses calls taken divided by scheduled calls whose schedule date is in the past. Future scheduled calls are excluded from the denominator. Match "show rate scheduled", "attendance rate for scheduled calls". |
-| `adjusted_show_rate_percent` | Show Rate (Booked) | percent | calls_taken / calls_booked * 100. | Uses calls taken divided by all booked calls. Match "show rate booked", "show rate of booked calls", "adjusted show rate". |
+| `adjusted_show_rate_percent` | Show Rate (Booked) | percent | calls_taken / calls_booked * 100. | Uses calls taken divided by all booked calls. Match plain "show rate", "show rate booked", "show rate of booked calls", "adjusted show rate". |
 | `cancel_rate_percent` | Cancel Rate | percent | cancelled / calls_booked * 100. | Uses cancelled calls divided by booked calls. Match "cancel rate", "cancellation rate", "percent canceled". |
 | `closing_rate_booked_percent` | Close Rate (Scheduled) | percent | contract_signed / calls_scheduled * 100. | Uses signed contracts divided by scheduled calls. The label says scheduled, but the key uses `booked` historically. Match "close rate scheduled", "closing rate on scheduled calls". |
-| `closing_rate_taken_percent` | Close Rate (Taken) | percent | contract_signed / calls_taken * 100. | Uses signed contracts divided by calls taken. Match "close rate taken", "closing rate from attended calls", "contract close rate from taken calls". |
+| `closing_rate_taken_percent` | Close Rate (Taken) | percent | contract_signed / calls_taken * 100. | Uses signed contracts divided by calls taken. Match plain "close rate", "close rate taken", "closing rate from attended calls", "contract close rate from taken calls". |
 | `cash_per_call_booked` | Cash / Call Scheduled | currency | new_cash_collected / calls_scheduled. | Uses new cash collected divided by scheduled calls. The key uses `booked`, but the label and formula denominator are scheduled calls. Match "cash per scheduled call", "cash per call scheduled". |
 | `cash_per_call_taken` | Cash / Call Taken | currency | new_cash_collected / calls_taken. | Uses new cash collected divided by calls taken. Match "cash per taken call", "cash per completed call", "cash per attended call". |
 
@@ -312,11 +313,13 @@ Recommended matching priority:
    - "signed deals" or "deals closed" -> `contract_signed` or leaderboard `deals_closed`
    - "appointments booked" -> `calls_booked`
    - "appointments held" or "attended calls" -> `calls_taken`
-   - "attendance rate" -> `show_rate_percent` or `adjusted_show_rate_percent` depending on denominator
+   - plain "close rate" -> `closing_rate_taken_percent` / Close Rate (Taken)
+   - "close rate scheduled" -> `closing_rate_booked_percent`
+   - plain "show rate" -> `adjusted_show_rate_percent` / Show Rate (Booked)
+   - "scheduled show rate" or "attendance rate for scheduled calls" -> `show_rate_percent`
    - "cancellation percentage" -> `cancel_rate_percent`
    - "cost per acquisition" or "CPA" -> `cost_per_acquisition`
    - "return on ad spend" -> `roas`
 4. If the user asks for a leaderboard ranking, prefer `LEADERBOARD_METRIC_KEYS`.
 5. If the user asks for drill-down rows or "show me the records behind this", use KPI detail behavior.
 6. If the user asks about stored dashboard metrics, answer that KPI values are computed live and not stored in a dashboard metrics table, except calendar availability snapshots are cached.
-

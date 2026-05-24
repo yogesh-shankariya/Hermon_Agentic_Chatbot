@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 from langchain.tools import tool
 
-from app.config import get_sql_agent_settings
+from app.config import get_org_timezone, get_sql_agent_settings
 from app.db import QueryValidationError, get_db
 from app.utils.skill_loader import SkillRegistryError
 from app.utils.skill_loader import load_skill as load_file_skill
@@ -124,6 +125,10 @@ def default_previous_month_dates(today: date) -> tuple[date, date]:
     return _month_start_months_ago(current_month_start, 1), current_month_start
 
 
+def _today_in_timezone(timezone_name: str) -> date:
+    return datetime.now(ZoneInfo(timezone_name)).date()
+
+
 def _infer_trend_granularity(sql: str) -> str | None:
     match = DATE_TRUNC_GRANULARITY_RE.search(sql)
     if not match:
@@ -139,14 +144,22 @@ def _max_rows_for_sql(sql: str, default_max_rows: int) -> int:
     return default_max_rows
 
 
-def _apply_default_trend_dates(sql: str, params: dict[str, Any]) -> None:
+def _apply_default_trend_dates(
+    sql: str,
+    params: dict[str, Any],
+    *,
+    today: date | None = None,
+) -> None:
     if "start_date" in params or "end_date" in params:
         return
 
     if ":start_date" not in sql or ":end_date" not in sql:
         return
 
-    start_date, end_date = default_trend_dates(_infer_trend_granularity(sql) or "", date.today())
+    start_date, end_date = default_trend_dates(
+        _infer_trend_granularity(sql) or "",
+        today or date.today(),
+    )
     if start_date is None or end_date is None:
         return
 
@@ -154,7 +167,12 @@ def _apply_default_trend_dates(sql: str, params: dict[str, Any]) -> None:
     params["end_date"] = end_date.isoformat()
 
 
-def _apply_default_date_window(sql: str, params: dict[str, Any]) -> None:
+def _apply_default_date_window(
+    sql: str,
+    params: dict[str, Any],
+    *,
+    today: date | None = None,
+) -> None:
     if "start_date" in params or "end_date" in params:
         return
 
@@ -163,9 +181,12 @@ def _apply_default_date_window(sql: str, params: dict[str, Any]) -> None:
 
     trend_granularity = _infer_trend_granularity(sql)
     if trend_granularity:
-        start_date, end_date = default_trend_dates(trend_granularity, date.today())
+        start_date, end_date = default_trend_dates(
+            trend_granularity,
+            today or date.today(),
+        )
     else:
-        start_date, end_date = default_previous_month_dates(date.today())
+        start_date, end_date = default_previous_month_dates(today or date.today())
 
     if start_date is None or end_date is None:
         return
@@ -215,9 +236,11 @@ def run_readonly_sql(query: str, params_json: str = "{}") -> str:
     request organization as `org_id` and ignores any model-supplied org_id in
     params_json. Daily, weekly, or monthly trend queries that omit
     start_date/end_date receive application defaults when granularity can be
-    inferred from DATE_TRUNC. Non-trend queries that use both :start_date and
-    :end_date but omit params receive the previous completed calendar month as
-    a safe fallback. Use params_json for other named parameters, for example:
+    inferred from DATE_TRUNC. Date defaults are computed in the active
+    organization's configured timezone. Non-trend queries that use both
+    :start_date and :end_date but omit params receive the previous completed
+    calendar month as a safe fallback. Use params_json for other named
+    parameters, for example:
     {"start_date": "2026-04-01", "end_date": "2026-05-01"}.
     """
 
@@ -232,25 +255,42 @@ def run_readonly_sql(query: str, params_json: str = "{}") -> str:
 
     sql = _clean_sql_input(query)
     params: dict[str, Any] = {}
+    effective_params: dict[str, Any] = {}
     try:
+        org_timezone = get_org_timezone(settings.default_org_id)
         max_rows = _max_rows_for_sql(sql, settings.max_tool_rows)
         params = _load_params(params_json)
         # The agent must write tenant-scoped SQL, but this tool owns injecting
         # the actual tenant value so the model never sees or hardcodes it.
         params["org_id"] = settings.default_org_id
         params.setdefault("limit", max_rows)
-        _apply_default_date_window(sql, params)
-        rows = get_db().query_records(sql, params=params, max_rows=max_rows)
+        _apply_default_date_window(
+            sql,
+            params,
+            today=_today_in_timezone(org_timezone),
+        )
+        effective_params = {**params, "timezone": org_timezone}
+        rows = get_db().query_records(
+            sql,
+            params=params,
+            max_rows=max_rows,
+            timezone_name=org_timezone,
+        )
     except (QueryValidationError, ValueError) as exc:
         return _json_response(
-            {"ok": False, "error": str(exc), "effective_params": params, "sql": sql}
+            {
+                "ok": False,
+                "error": str(exc),
+                "effective_params": effective_params or params,
+                "sql": sql,
+            }
         )
     except Exception as exc:  # noqa: BLE001 - return DB/runtime errors to the agent for repair.
         return _json_response(
             {
                 "ok": False,
                 "error": f"{type(exc).__name__}: {exc}",
-                "effective_params": params,
+                "effective_params": effective_params or params,
                 "sql": sql,
             }
         )
@@ -258,7 +298,7 @@ def run_readonly_sql(query: str, params_json: str = "{}") -> str:
     return _json_response(
         {
             "ok": True,
-            "effective_params": params,
+            "effective_params": effective_params,
             "row_count": len(rows),
             "rows": rows,
             "sql": sql,

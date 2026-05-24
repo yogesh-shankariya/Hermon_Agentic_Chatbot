@@ -16,6 +16,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 import yaml
@@ -132,12 +133,17 @@ class ReadOnlyPostgres:
         params: dict[str, Any] | None = None,
         *,
         max_rows: int | None = None,
+        timezone_name: str | None = None,
     ) -> pd.DataFrame:
         """Validate and execute SQL, returning a pandas DataFrame."""
 
         validated_sql = self.validate_sql(sql)
         limited_sql = self._wrap_with_limit(validated_sql, max_rows=max_rows)
-        return self._execute_df(limited_sql, params=params or {})
+        return self._execute_df(
+            limited_sql,
+            params=params or {},
+            timezone_name=timezone_name,
+        )
 
     def query_records(
         self,
@@ -146,13 +152,19 @@ class ReadOnlyPostgres:
         *,
         max_rows: int | None = None,
         timeout_seconds: int | float | None = None,
+        timezone_name: str | None = None,
     ) -> list[dict[str, Any]]:
         """Validate and execute SQL, returning records for API/agent use."""
 
         validated_sql = self.validate_sql(sql)
         limited_sql = self._wrap_with_limit(validated_sql, max_rows=max_rows)
         timeout_ms = self._timeout_ms(timeout_seconds)
-        return self._execute_records(limited_sql, params=params or {}, timeout_ms=timeout_ms)
+        return self._execute_records(
+            limited_sql,
+            params=params or {},
+            timeout_ms=timeout_ms,
+            timezone_name=timezone_name,
+        )
 
     def validate_sql(self, sql: str) -> str:
         """Return cleaned SQL if safe, otherwise raise QueryValidationError."""
@@ -192,12 +204,19 @@ class ReadOnlyPostgres:
 
         return cleaned
 
-    def _execute_df(self, sql: str, params: dict[str, Any]) -> pd.DataFrame:
+    def _execute_df(
+        self,
+        sql: str,
+        params: dict[str, Any],
+        *,
+        timezone_name: str | None = None,
+    ) -> pd.DataFrame:
         engine = self._get_engine()
         with engine.connect() as conn:
             transaction = conn.begin()
             try:
                 conn.exec_driver_sql("SET TRANSACTION READ ONLY")
+                self._set_local_timezone(conn, timezone_name)
                 conn.exec_driver_sql(
                     f"SET LOCAL statement_timeout = {int(self.config.statement_timeout_ms)}"
                 )
@@ -214,12 +233,14 @@ class ReadOnlyPostgres:
         params: dict[str, Any],
         *,
         timeout_ms: int | None = None,
+        timezone_name: str | None = None,
     ) -> list[dict[str, Any]]:
         engine = self._get_engine()
         with engine.connect() as conn:
             transaction = conn.begin()
             try:
                 conn.exec_driver_sql("SET TRANSACTION READ ONLY")
+                self._set_local_timezone(conn, timezone_name)
                 statement_timeout_ms = int(timeout_ms or self.config.statement_timeout_ms)
                 conn.exec_driver_sql(
                     f"SET LOCAL statement_timeout = {statement_timeout_ms}"
@@ -255,6 +276,24 @@ class ReadOnlyPostgres:
         # The validator blocks SELECT * in model-written SQL. This wrapper is
         # added only after validation so app-side row limiting stays centralized.
         return f"SELECT * FROM ({sql}) AS _safe_query LIMIT {int(row_limit)}"
+
+    def _set_local_timezone(self, conn: Any, timezone_name: str | None) -> None:
+        if timezone_name is None:
+            return
+
+        clean_timezone = str(timezone_name or "").strip()
+        if not clean_timezone:
+            return
+
+        try:
+            ZoneInfo(clean_timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise QueryValidationError(
+                f"Invalid IANA timezone name for SQL execution: {clean_timezone}"
+            ) from exc
+
+        sql_timezone = clean_timezone.replace("'", "''")
+        conn.exec_driver_sql(f"SET LOCAL TIME ZONE '{sql_timezone}'")
 
     def _load_yaml(self, path: Path) -> dict[str, Any]:
         if not path.exists():

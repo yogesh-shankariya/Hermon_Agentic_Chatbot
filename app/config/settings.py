@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from dotenv import load_dotenv
@@ -17,6 +18,7 @@ from app.org_context import get_active_org_id
 APP_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = APP_DIR.parent
 CONFIG_PATH = APP_DIR / "config" / "config.yaml"
+DEFAULT_TIMEZONE = "UTC"
 
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -95,6 +97,52 @@ def _enabled_sql_skills(agent_config: dict[str, Any]) -> tuple[str, ...]:
         raise RuntimeError("llm.sql_agent.enabled_skills must be 'all' or a YAML list.")
 
     return tuple(str(skill).strip() for skill in configured_skills if str(skill).strip())
+
+
+def _validate_timezone_name(timezone_name: str, *, config_key: str) -> str:
+    clean_timezone = str(timezone_name or "").strip()
+    if not clean_timezone:
+        raise RuntimeError(f"{config_key} must be a non-empty IANA timezone name.")
+
+    try:
+        ZoneInfo(clean_timezone)
+    except ZoneInfoNotFoundError as exc:
+        raise RuntimeError(
+            f"{config_key} has invalid IANA timezone name: {clean_timezone}"
+        ) from exc
+
+    return clean_timezone
+
+
+def get_org_timezone(org_id: str | None) -> str:
+    """Return the configured IANA timezone for an organization."""
+
+    config = load_app_config()
+    timezone_config = config.get("organization_timezones", {})
+    if timezone_config is None:
+        timezone_config = {}
+    if not isinstance(timezone_config, dict):
+        raise RuntimeError("organization_timezones must be a YAML object.")
+
+    default_timezone = _validate_timezone_name(
+        str(timezone_config.get("default_timezone") or DEFAULT_TIMEZONE),
+        config_key="organization_timezones.default_timezone",
+    )
+
+    by_org_id = timezone_config.get("by_org_id", {})
+    if by_org_id is None:
+        by_org_id = {}
+    if not isinstance(by_org_id, dict):
+        raise RuntimeError("organization_timezones.by_org_id must be a YAML object.")
+
+    clean_org_id = str(org_id or "").strip()
+    if not clean_org_id or clean_org_id not in by_org_id:
+        return default_timezone
+
+    return _validate_timezone_name(
+        str(by_org_id[clean_org_id]),
+        config_key=f"organization_timezones.by_org_id.{clean_org_id}",
+    )
 
 
 def get_sql_agent_settings() -> SqlAgentSettings:
