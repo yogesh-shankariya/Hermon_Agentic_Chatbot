@@ -35,8 +35,8 @@ database:
 organization_timezones:
   default_timezone: "UTC"
   by_org_id:
-    org_3ARuGHeqbbEu5FNexlpC7ElaiyW: "Europe/Amsterdam"
-    # org_3ARuGHeqbbEu5FNexlpC7ElaiyW: "Asia/Kolkata"
+    # org_3ARuGHeqbbEu5FNexlpC7ElaiyW: "Europe/Amsterdam"
+    org_3ARuGHeqbbEu5FNexlpC7ElaiyW: "Asia/Kolkata"
 
 prompts:
   base_path: "app/prompts"
