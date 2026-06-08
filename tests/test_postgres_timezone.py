@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
-from app.db.postgres import QueryValidationError, ReadOnlyPostgres, ReadOnlyQueryConfig
+from app.db.postgres import (
+    QueryValidationError,
+    ReadOnlyPostgres,
+    ReadOnlyQueryConfig,
+    _sqlalchemy_psycopg_url,
+)
 
 
 class FakeTransaction:
@@ -97,6 +103,39 @@ class ReadOnlyPostgresTimezoneTests(unittest.TestCase):
             runner.query_records("SELECT 1 AS answer", timezone_name="Amsterdam")
 
         self.assertTrue(connection.transaction.rolled_back)
+
+
+class ReadOnlyPostgresUrlTests(unittest.TestCase):
+    def test_plain_postgres_urls_use_installed_psycopg_driver(self):
+        self.assertEqual(
+            _sqlalchemy_psycopg_url("postgresql://user:pass@example/db"),
+            "postgresql+psycopg://user:pass@example/db",
+        )
+        self.assertEqual(
+            _sqlalchemy_psycopg_url("postgres://user:pass@example/db"),
+            "postgresql+psycopg://user:pass@example/db",
+        )
+        self.assertEqual(
+            _sqlalchemy_psycopg_url("postgresql+psycopg://user:pass@example/db"),
+            "postgresql+psycopg://user:pass@example/db",
+        )
+
+    def test_get_engine_normalizes_database_url_before_create_engine(self):
+        created_engine = object()
+        runner = ReadOnlyPostgres(
+            config=ReadOnlyQueryConfig(
+                database_url="postgres://user:pass@example/db",
+                require_org_scope=False,
+            )
+        )
+
+        with patch("app.db.postgres.create_engine", return_value=created_engine) as create_engine:
+            self.assertIs(runner._get_engine(), created_engine)
+
+        self.assertEqual(
+            create_engine.call_args.args[0],
+            "postgresql+psycopg://user:pass@example/db",
+        )
 
 
 if __name__ == "__main__":

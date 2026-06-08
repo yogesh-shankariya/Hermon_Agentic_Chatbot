@@ -59,6 +59,18 @@ TENANT_FILTER_RE = re.compile(
     re.IGNORECASE,
 )
 
+
+def _sqlalchemy_psycopg_url(database_url: str) -> str:
+    """Use the installed psycopg v3 SQLAlchemy driver for plain Postgres URLs."""
+
+    clean_url = database_url.strip()
+    if clean_url.startswith("postgresql://"):
+        return clean_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    if clean_url.startswith("postgres://"):
+        return clean_url.replace("postgres://", "postgresql+psycopg://", 1)
+    return clean_url
+
+
 BUSINESS_TABLES = {
     "appointment_event_types",
     "appointments",
@@ -259,7 +271,7 @@ class ReadOnlyPostgres:
             raise RuntimeError("Missing HERMON_DATABASE_URL or DATABASE_URL in .env.")
         if self._engine is None:
             self._engine = create_engine(
-                database_url,
+                _sqlalchemy_psycopg_url(database_url),
                 pool_pre_ping=True,
                 pool_size=5,
                 max_overflow=10,
