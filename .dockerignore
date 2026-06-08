@@ -1,0 +1,12 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.git/
+.env
+.env.*
+.DS_Store
+.streamlit/
+.sqlite3
+.devcontainer
+.pytest_cache

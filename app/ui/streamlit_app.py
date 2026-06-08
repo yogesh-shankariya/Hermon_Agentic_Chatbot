@@ -39,9 +39,10 @@ from app.org_context import active_org_context  # noqa: E402
 from app.poc_chat_history import (  # noqa: E402
     clear_poc_chat_history,
     fetch_latest_poc_chat_history,
-    fetch_router_poc_chat_history,
     insert_poc_chat_history,
 )
+from app.schema.chat import ChatRequest  # noqa: E402
+from app.services.chatbot_service import run_chatbot_turn  # noqa: E402
 from app.utils.skill_loader import list_skill_metadata  # noqa: E402
 from langchain_core.callbacks import BaseCallbackHandler  # noqa: E402
 
@@ -1669,93 +1670,17 @@ def run_question(
         except Exception:
             return
 
-    emit_progress("Understanding your question...")
-    started_at = time.perf_counter()
     organization_id = current_organization_id()
-    with active_org_environment(organization_id):
-        emit_progress("Loading recent conversation context...")
-        poc_history = fetch_router_poc_chat_history(organization_id)
-        emit_progress("Loading the configured agents...")
-        components = get_flow_components(
-            organization_id=organization_id,
-            config_mtime_ns=CONFIG_PATH.stat().st_mtime_ns,
-            prompt_mtime_ns=SQL_AGENT_PROMPT_PATH.stat().st_mtime_ns,
-            router_prompt_mtime_ns=ROUTER_PROMPT_PATH.stat().st_mtime_ns,
-            lead_360_prompt_mtime_ns=LEAD_360_PROMPT_PATH.stat().st_mtime_ns,
-            diagnostic_prompt_mtime_ns=DIAGNOSTIC_PROMPT_PATH.stat().st_mtime_ns,
-        )
-        timing_callback = AgentTimingCallback()
-        callbacks: list[BaseCallbackHandler] = [timing_callback]
-        if progress_callback is not None:
-            callbacks.append(AgentProgressCallback(emit_progress))
-        turn = answer_user_question(
-            question,
-            poc_history,
-            router=components["router"],
-            sql_agent=components["sql_agent"],
-            lead_360_agent=components["lead_360_agent"],
-            diagnostic_agent=components["diagnostic_agent"],
-            config={"callbacks": callbacks},
-            progress_callback=emit_progress,
-        )
-    elapsed_seconds = time.perf_counter() - started_at
-
-    trace_messages = list(turn.get("trace_messages", []))
-    all_messages = list(turn.get("all_messages", []))
-    answer = str(turn.get("answer") or final_answer_from(trace_messages) or final_answer_from(all_messages))
-    execution_details = extract_execution_details(trace_messages)
-    lead_360_diagnostics = extract_lead_360_diagnostics(trace_messages)
-    route = str(turn.get("route") or "")
-    selected_skill = (
-        str(execution_details.get("selected_skill") or "").strip()
-        if route == "sql_analytics"
-        else ""
+    return run_chatbot_turn(
+        ChatRequest(
+            question=question,
+            user_id="streamlit_local_user",
+            org_id=organization_id,
+            timezone="Europe/Amsterdam",
+        ),
+        progress_callback=emit_progress,
+        persist_history=True,
     )
-    selected_skill = selected_skill or None
-    generated_sql = (
-        str(execution_details.get("sql") or "").strip()
-        if route == "sql_analytics"
-        else ""
-    )
-    generated_sql = generated_sql or None
-    timing = build_timing_breakdown(
-        timing_callback.events,
-        total_seconds=elapsed_seconds,
-    )
-
-    persist_poc_turn(
-        organization_id=organization_id,
-        route=route,
-        selected_skill=selected_skill,
-        user_question=question,
-        standalone_question=str(turn.get("standalone_question") or "") or None,
-        generated_sql=generated_sql,
-        answer=answer,
-        elapsed_seconds=elapsed_seconds,
-        execution_details=safe_json(execution_details),
-        timing=safe_json(timing),
-        lead_360_diagnostics=safe_json(lead_360_diagnostics),
-    )
-
-    return {
-        "question": question,
-        "answer": answer,
-        "standalone_question": turn.get("standalone_question", question),
-        "route": route,
-        "router_response": turn.get("router_response"),
-        "organization_id": organization_id,
-        "selected_skill": selected_skill,
-        "generated_sql": generated_sql,
-        "latest_router_history": turn.get("latest_router_history", []),
-        "selected_history": turn.get("selected_history", []),
-        "trace_messages": trace_messages,
-        "all_messages": all_messages,
-        "context_turn_count": int(turn.get("context_turn_count", 0)),
-        "elapsed_seconds": elapsed_seconds,
-        "timing": timing,
-        "lead_360_diagnostics": lead_360_diagnostics,
-        "execution_details": execution_details,
-    }
 
 
 def render_tool_call(tool_call: dict[str, Any], index: int) -> None:

@@ -3,8 +3,10 @@ PyYAML
 SQLAlchemy
 psycopg[binary]
 python-dotenv
-ipykernel
+pydantic
+fastapi
+uvicorn
 langchain[openai]
 langchain-openai
 langgraph
-streamlit
+langsmith

@@ -1,6 +1,6 @@
 # Hermon Agentic Chatbot
 
-Streamlit-first text-to-SQL chatbot for Hermon analytics.
+Text-to-SQL chatbot for Hermon analytics with Streamlit and local FastAPI entrypoints.
 
 ## Hermon Q&A Agent Prototype
 
@@ -39,6 +39,32 @@ Run the Streamlit chat UI:
 streamlit run app/ui/streamlit_app.py
 ```
 
+Run the local FastAPI chatbot service:
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Health check:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Chat test:
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Show me revenue trend",
+    "user_id": "user_123",
+    "org_id": "org_xxx",
+    "timezone": "Europe/Amsterdam",
+    "chat_history": []
+  }'
+```
+
 ### Streamlit Community Cloud secrets
 
 Do not upload `.env` to Streamlit Community Cloud. Instead, open the app's
@@ -67,6 +93,8 @@ development. Keep local `.streamlit/secrets.toml` and `.env` files out of git.
 | `app/tools/` | Agent tool implementations, including SQL validation and execution tools. |
 | `app/config/config.yaml` | Model, prompt version, database, and Streamlit runtime config. |
 | `app/prompts/sql_agent/` | Versioned YAML prompt for SQL generation behavior. |
+| `app/services/` | Streamlit-free chatbot service used by FastAPI and the UI. |
+| `app/schema/` | Pydantic schemas for routing, extraction, and chat API payloads. |
 | `app/skills/` | Skill registry and Markdown skill instructions loaded by the agent. |
 | `app/db/` | Read-only Postgres helper and SQL safety validation. |
 | `app/ui/` | Streamlit application. |
