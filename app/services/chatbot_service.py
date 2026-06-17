@@ -1,13 +1,15 @@
-"""Streamlit-free chatbot execution service."""
+"""UI-independent chatbot execution service."""
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import Callable, Sequence
 from contextlib import nullcontext
+from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -22,29 +24,26 @@ from app.orchestrator import (
     create_default_sql_agent,
     final_answer_from,
 )
-from app.org_context import active_org_context, active_timezone_context
-from app.poc_chat_history import (
-    fetch_router_poc_chat_history,
-    insert_poc_chat_history,
-)
+from app.org_context import active_org_context
 from app.schema.chat import ChatRequest, ChatResponse
+from app.utils.prompt_loader import get_prompt_path
+from app.utils.skill_loader import get_skill_path
 from langchain_core.callbacks import BaseCallbackHandler
 
 try:
     from langsmith import trace as langsmith_trace
+    from langsmith import utils as langsmith_utils
 except Exception:  # pragma: no cover - LangSmith is optional outside API runtime.
     langsmith_trace = None
+    langsmith_utils = None
 
 
 LOGGER = logging.getLogger(__name__)
 
 APP_DIR = Path(__file__).resolve().parents[1]
 CONFIG_PATH = APP_DIR / "config" / "config.yaml"
-SQL_AGENT_PROMPT_PATH = APP_DIR / "prompts" / "sql_agent" / "1_0_0.yaml"
-ROUTER_PROMPT_PATH = APP_DIR / "prompts" / "router.md"
-LEAD_360_PROMPT_PATH = APP_DIR / "skills" / "modules" / "lead_360.md"
-DIAGNOSTIC_PROMPT_PATH = APP_DIR / "skills" / "modules" / "diagnostic_analytics.md"
-AGENT_CACHE_VERSION = "router-first-v1"
+SKILL_REGISTRY_PATH = APP_DIR / "skills" / "registry.yaml"
+AGENT_CACHE_VERSION = "router-first-v2-compact-sql-answer"
 
 SAFE_TOOL_PROGRESS_MESSAGES = {
     "load_skill": "Loading the relevant analytics context...",
@@ -573,23 +572,35 @@ def _path_mtime_ns(path: Path) -> int:
         return 0
 
 
+def _prompt_mtime_ns(prompt_name: str) -> int:
+    return _path_mtime_ns(get_prompt_path(prompt_name))
+
+
+def _skill_mtime_ns(skill_name: str) -> int:
+    return _path_mtime_ns(get_skill_path(skill_name))
+
+
 @lru_cache(maxsize=32)
 def get_flow_components(
     cache_version: str = AGENT_CACHE_VERSION,
     organization_id: str = "",
     config_mtime_ns: int = 0,
     prompt_mtime_ns: int = 0,
+    sql_answer_prompt_mtime_ns: int = 0,
     router_prompt_mtime_ns: int = 0,
     lead_360_prompt_mtime_ns: int = 0,
     diagnostic_prompt_mtime_ns: int = 0,
+    skill_registry_mtime_ns: int = 0,
 ) -> dict[str, Any]:
     _ = cache_version
     _ = organization_id
     _ = config_mtime_ns
     _ = prompt_mtime_ns
+    _ = sql_answer_prompt_mtime_ns
     _ = router_prompt_mtime_ns
     _ = lead_360_prompt_mtime_ns
     _ = diagnostic_prompt_mtime_ns
+    _ = skill_registry_mtime_ns
     load_app_config.cache_clear()
     return {
         "router": create_default_router(),
@@ -629,19 +640,50 @@ def _validate_timezone(timezone_name: str | None) -> str:
     return clean_timezone
 
 
+def _next_month_start(month_start: date) -> date:
+    if month_start.month == 12:
+        return date(month_start.year + 1, 1, 1)
+    return date(month_start.year, month_start.month + 1, 1)
+
+
+def _runtime_context_for_timezone(timezone_name: str) -> str:
+    local_today = datetime.now(ZoneInfo(timezone_name)).date()
+    current_month_start = local_today.replace(day=1)
+    next_month_start = _next_month_start(current_month_start)
+    tomorrow = date.fromordinal(local_today.toordinal() + 1)
+    return "\n".join(
+        [
+            "Runtime context for relative dates:",
+            f"- Request timezone: {timezone_name}",
+            f"- Current local date: {local_today.isoformat()}",
+            (
+                "- Current month window: "
+                f"{current_month_start.isoformat()} inclusive to "
+                f"{next_month_start.isoformat()} exclusive"
+            ),
+            (
+                "- Month-to-date window: "
+                f"{current_month_start.isoformat()} inclusive to "
+                f"{tomorrow.isoformat()} exclusive"
+            ),
+            (
+                "- For 'this month' or 'current month', pass explicit "
+                "start_date/end_date params for the current month window."
+            ),
+            (
+                "- For 'month-to-date', pass explicit start_date/end_date "
+                "params for the month-to-date window."
+            ),
+        ]
+    )
+
+
 def _resolve_org_id(request: ChatRequest) -> str:
     requested_org_id = str(request.org_id or "").strip()
     if requested_org_id:
         return requested_org_id
 
     raise ValueError("Organization ID is required.")
-
-
-def _request_chat_history_was_supplied(request: ChatRequest) -> bool:
-    fields_set = getattr(request, "model_fields_set", None)
-    if fields_set is None:
-        fields_set = getattr(request, "__fields_set__", set())
-    return "chat_history" in fields_set
 
 
 def _history_item_dict(item: Any) -> dict[str, Any]:
@@ -663,7 +705,7 @@ def _history_item_dict(item: Any) -> dict[str, Any]:
 
 
 def _normalize_chat_history(chat_history: Sequence[Any]) -> list[dict[str, Any]]:
-    """Convert role/content messages or stored POC turns into router Q&A turns."""
+    """Convert request role/content messages into router Q&A turns."""
 
     turns: list[dict[str, Any]] = []
     pending_user: str | None = None
@@ -701,45 +743,10 @@ def _normalize_chat_history(chat_history: Sequence[Any]) -> list[dict[str, Any]]
     return turns
 
 
-def _chat_history_for_request(
-    request: ChatRequest,
-    *,
-    org_id: str,
-    persist_history: bool,
-) -> list[dict[str, Any]]:
-    if _request_chat_history_was_supplied(request):
-        return _normalize_chat_history(request.chat_history)
-    if persist_history:
-        return fetch_router_poc_chat_history(org_id)
-    return []
-
-
-def _persist_poc_turn(turn: dict[str, Any], *, org_id: str, question: str) -> None:
-    """Save local POC chat history without letting persistence break the answer."""
-
-    try:
-        insert_poc_chat_history(
-            organization_id=org_id,
-            route=str(turn.get("route") or ""),
-            selected_skill=turn.get("selected_skill"),
-            user_question=question,
-            standalone_question=str(turn.get("standalone_question") or "") or None,
-            generated_sql=turn.get("generated_sql"),
-            answer=str(turn.get("answer") or ""),
-            elapsed_seconds=turn.get("elapsed_seconds"),
-            execution_details=safe_json(turn.get("execution_details")),
-            timing=safe_json(turn.get("timing")),
-            lead_360_diagnostics=safe_json(turn.get("lead_360_diagnostics")),
-        )
-    except Exception:
-        LOGGER.exception("Failed to persist local POC chat history")
-
-
 def run_chatbot_turn(
     request: ChatRequest,
     *,
     progress_callback: ProgressCallback | None = None,
-    persist_history: bool = False,
 ) -> dict[str, Any]:
     """Run one chatbot turn and return rich internal turn data."""
 
@@ -755,21 +762,19 @@ def run_chatbot_turn(
     _emit_progress(progress_callback, "Understanding your question...")
     started_at = time.perf_counter()
 
-    with active_org_context(org_id), active_timezone_context(requested_timezone):
+    with active_org_context(org_id, timezone_name=requested_timezone):
         _emit_progress(progress_callback, "Loading recent conversation context...")
-        chat_history = _chat_history_for_request(
-            request,
-            org_id=org_id,
-            persist_history=persist_history,
-        )
+        chat_history = _normalize_chat_history(request.chat_history)
         _emit_progress(progress_callback, "Loading the configured agents...")
         components = get_flow_components(
             organization_id=org_id,
             config_mtime_ns=_path_mtime_ns(CONFIG_PATH),
-            prompt_mtime_ns=_path_mtime_ns(SQL_AGENT_PROMPT_PATH),
-            router_prompt_mtime_ns=_path_mtime_ns(ROUTER_PROMPT_PATH),
-            lead_360_prompt_mtime_ns=_path_mtime_ns(LEAD_360_PROMPT_PATH),
-            diagnostic_prompt_mtime_ns=_path_mtime_ns(DIAGNOSTIC_PROMPT_PATH),
+            prompt_mtime_ns=_prompt_mtime_ns("sql_agent"),
+            sql_answer_prompt_mtime_ns=_prompt_mtime_ns("sql_answer"),
+            router_prompt_mtime_ns=_prompt_mtime_ns("router"),
+            lead_360_prompt_mtime_ns=_skill_mtime_ns("lead_360"),
+            diagnostic_prompt_mtime_ns=_skill_mtime_ns("diagnostic_analytics"),
+            skill_registry_mtime_ns=_path_mtime_ns(SKILL_REGISTRY_PATH),
         )
         timing_callback = AgentTimingCallback()
         callbacks: list[BaseCallbackHandler] = [timing_callback]
@@ -784,6 +789,7 @@ def run_chatbot_turn(
             diagnostic_agent=components["diagnostic_agent"],
             config={"callbacks": callbacks},
             progress_callback=emit_progress,
+            runtime_context=_runtime_context_for_timezone(requested_timezone),
         )
 
     elapsed_seconds = time.perf_counter() - started_at
@@ -832,9 +838,6 @@ def run_chatbot_turn(
         "lead_360_diagnostics": lead_360_diagnostics,
         "execution_details": execution_details,
     }
-
-    if persist_history:
-        _persist_poc_turn(full_turn, org_id=org_id, question=question)
 
     return full_turn
 
@@ -912,7 +915,7 @@ def _open_langsmith_trace(
     inputs: dict[str, Any],
     metadata: dict[str, Any],
 ) -> Any:
-    if langsmith_trace is None:
+    if not _langsmith_tracing_can_persist():
         return nullcontext(None)
     return langsmith_trace(
         name,
@@ -920,6 +923,56 @@ def _open_langsmith_trace(
         inputs=trace_safe_json(inputs),
         metadata=trace_safe_json(metadata),
     )
+
+
+def _langsmith_env_var(name: str) -> str | None:
+    if langsmith_utils is not None:
+        try:
+            value = langsmith_utils.get_env_var(name)
+            return str(value).strip() if value else None
+        except Exception:
+            LOGGER.debug("Failed to read LangSmith env var %s via langsmith utils", name)
+
+    for namespace in ("LANGSMITH", "LANGCHAIN"):
+        value = os.getenv(f"{namespace}_{name}")
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
+def _langsmith_tracing_enabled() -> bool:
+    if langsmith_trace is None:
+        return False
+    if langsmith_utils is not None:
+        try:
+            return langsmith_utils.tracing_is_enabled() is True
+        except Exception:
+            LOGGER.exception("Failed to determine whether LangSmith tracing is enabled")
+            return False
+
+    tracing_value = (
+        _langsmith_env_var("TRACING_V2")
+        or _langsmith_env_var("TRACING")
+        or ""
+    )
+    return tracing_value.lower() == "true"
+
+
+def _langsmith_endpoint_requires_api_key() -> bool:
+    endpoint = _langsmith_env_var("ENDPOINT") or "https://api.smith.langchain.com"
+    return "langchain.com" in endpoint.lower()
+
+
+def _langsmith_tracing_can_persist() -> bool:
+    if not _langsmith_tracing_enabled():
+        return False
+    if _langsmith_endpoint_requires_api_key() and not _langsmith_env_var("API_KEY"):
+        LOGGER.error(
+            "LangSmith tracing is enabled, but LANGSMITH_API_KEY/LANGCHAIN_API_KEY "
+            "is missing for the hosted LangSmith endpoint. No trace_id will be returned."
+        )
+        return False
+    return True
 
 
 def _trace_id_for_run(run: Any) -> str | None:

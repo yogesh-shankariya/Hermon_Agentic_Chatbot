@@ -12,6 +12,7 @@ from langchain.tools import tool
 
 from app.config import get_org_timezone, get_sql_agent_settings
 from app.db import QueryValidationError, get_db
+from app.org_context import get_active_timezone
 from app.utils.skill_loader import SkillRegistryError
 from app.utils.skill_loader import load_skill as load_file_skill
 
@@ -257,7 +258,7 @@ def run_readonly_sql(query: str, params_json: str = "{}") -> str:
     params: dict[str, Any] = {}
     effective_params: dict[str, Any] = {}
     try:
-        org_timezone = get_org_timezone(settings.default_org_id)
+        org_timezone = get_active_timezone() or get_org_timezone(settings.default_org_id)
         max_rows = _max_rows_for_sql(sql, settings.max_tool_rows)
         params = _load_params(params_json)
         # The agent must write tenant-scoped SQL, but this tool owns injecting

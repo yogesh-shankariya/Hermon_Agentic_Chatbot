@@ -1,4 +1,0 @@
-question_id,category,question,expected_skill,expected_intent,expected_output,notes
-L360Q-001,Lead journey,Show me Vedran's full journey,lead_360,full_journey,narrative_summary,Single-lead 360 journey summary with timeline and current state.
-L360Q-002,Lead profile,Give me the 360 view of Jos,lead_360,profile_360,narrative_summary,Single-lead 360 profile view with evidence across lead context.
-L360Q-003,Lead next action,What happened with Catharina and what should we do next?,lead_360,next_action,narrative_summary,Single-lead 360 situation summary with recommended next action.

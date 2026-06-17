@@ -6,18 +6,17 @@ from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 
 from app.config import ensure_openai_key, get_sql_agent_settings
-from app.config.settings import APP_DIR
 from app.tools import get_lead_360_tool
+from app.utils.skill_loader import load_skill_body
 
 
-LEAD_360_PROMPT_PATH = APP_DIR / "skills" / "modules" / "lead_360.md"
 LEAD_360_TOOLS = [get_lead_360_tool]
 
 
 def load_lead_360_prompt() -> str:
     """Load the Lead 360 instructions from the dedicated skill module."""
 
-    return LEAD_360_PROMPT_PATH.read_text(encoding="utf-8").strip()
+    return load_skill_body("lead_360").strip()
 
 
 def create_lead_360_agent(

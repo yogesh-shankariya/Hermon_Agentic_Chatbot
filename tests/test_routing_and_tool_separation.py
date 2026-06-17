@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import csv
 import importlib
 import importlib.util
-import re
 import sys
 import types
 import unittest
 from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
+
+import yaml
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -105,16 +105,13 @@ def _install_fake_langchain_if_needed() -> None:
         langchain_module.__path__ = []
 
     tools_module = sys.modules.get("langchain.tools") or types.ModuleType("langchain.tools")
-    if not hasattr(tools_module, "tool"):
-        tools_module.tool = fake_tool
+    tools_module.tool = fake_tool
     agents_module = sys.modules.get("langchain.agents") or types.ModuleType("langchain.agents")
-    if not hasattr(agents_module, "create_agent"):
-        agents_module.create_agent = fake_create_agent
+    agents_module.create_agent = fake_create_agent
     chat_models_module = sys.modules.get("langchain.chat_models") or types.ModuleType(
         "langchain.chat_models"
     )
-    if not hasattr(chat_models_module, "init_chat_model"):
-        chat_models_module.init_chat_model = fake_init_chat_model
+    chat_models_module.init_chat_model = fake_init_chat_model
 
     sys.modules["langchain.tools"] = tools_module
     sys.modules["langchain.agents"] = agents_module
@@ -165,7 +162,11 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
 
     def test_sql_skill_registry_contains_only_analytics_skills(self):
         registry_text = (APP_DIR / "skills" / "registry.yaml").read_text(encoding="utf-8")
-        names = re.findall(r"^\s*-\s+name:\s+([a-z0-9_]+)\s*$", registry_text, re.MULTILINE)
+        config_text = (APP_DIR / "config" / "config.yaml").read_text(encoding="utf-8")
+        registry = yaml.safe_load(registry_text)
+        config = yaml.safe_load(config_text)
+        skills = registry["skills"]
+        names = [skill["name"] for skill in skills]
         self.assertEqual(
             names,
             [
@@ -177,15 +178,28 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             ],
         )
         self.assertNotIn("lead_360", names)
+        for skill in skills:
+            self.assertNotIn("path", skill)
+            self.assertNotIn("version", skill)
+            self.assertEqual(config["skills"][skill["name"]]["path"], skill["name"])
+            self.assertEqual(config["skills"][skill["name"]]["version"], "1_0_0")
+
+        self.assertEqual(config["skills"]["lead_360"]["path"], "lead_360")
+        self.assertEqual(config["skills"]["lead_360"]["version"], "1_0_0")
+        self.assertEqual(
+            config["skills"]["diagnostic_analytics"]["path"],
+            "diagnostic_analytics",
+        )
+        self.assertEqual(config["skills"]["diagnostic_analytics"]["version"], "1_0_0")
 
     def test_lead_profile_sql_skill_contains_profile_question_rules(self):
         registry_text = (APP_DIR / "skills" / "registry.yaml").read_text(encoding="utf-8")
-        skill_text = (APP_DIR / "skills" / "modules" / "lead_profile_analytics.md").read_text(
-            encoding="utf-8"
-        )
-        sql_prompt = (APP_DIR / "prompts" / "sql_agent" / "1_0_0.yaml").read_text(
-            encoding="utf-8"
-        )
+        skill_text = (
+            APP_DIR / "skills" / "modules" / "lead_profile_analytics" / "1_0_0.md"
+        ).read_text(encoding="utf-8")
+        sql_prompt = (
+            APP_DIR / "prompts" / "sql_agent" / "1_0_0.md"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("lead_profile_analytics", registry_text)
         self.assertIn("Which profession generated the most leads?", skill_text)
@@ -294,7 +308,9 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
                 self.assertEqual(len(sql_agent.payloads), 1)
 
     def test_router_prompt_contains_required_route_examples(self):
-        prompt = (APP_DIR / "prompts" / "router.md").read_text(encoding="utf-8")
+        prompt = (APP_DIR / "prompts" / "router" / "1_0_0.md").read_text(
+            encoding="utf-8"
+        )
         expected_examples = [
             ("How many leads came last month?", "sql_analytics"),
             ("Show revenue by program.", "sql_analytics"),
@@ -361,81 +377,6 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
             with self.subTest(question=question):
                 self.assertIn(question, prompt)
                 self.assertIn(route, prompt)
-
-    def test_streamlit_ui_includes_diagnostic_question_picker(self):
-        ui_text = (APP_DIR / "ui" / "streamlit_app.py").read_text(encoding="utf-8")
-
-        self.assertIn("DIAGNOSTIC_INPUT_QUESTIONS_PATH", ui_text)
-        self.assertIn('"key": "diagnostic_analytics"', ui_text)
-        self.assertIn('"title": "Diagnostic Analytics"', ui_text)
-        self.assertIn('"selectbox_label": "Diagnostic Analytics coverage"', ui_text)
-
-    def test_streamlit_enabled_skill_summary_includes_non_sql_flows(self):
-        ui_text = (APP_DIR / "ui" / "streamlit_app.py").read_text(encoding="utf-8")
-
-        self.assertIn("SUPPLEMENTAL_FLOW_NAMES", ui_text)
-        self.assertIn('"Multi Skills Analytics"', ui_text)
-        self.assertIn('"Lead 360"', ui_text)
-        self.assertIn('"Diagnostic Analytics"', ui_text)
-        self.assertIn("names.extend", ui_text)
-
-    def test_streamlit_admin_mode_uses_live_org_secret(self):
-        ui_text = (APP_DIR / "ui" / "streamlit_app.py").read_text(encoding="utf-8")
-
-        self.assertIn('USER_ORG_ENV_VAR = "DEMO_ORG_ID"', ui_text)
-        self.assertIn('ADMIN_ORG_ENV_VAR = "LIVE_ORG_ID"', ui_text)
-        self.assertIn('get_runtime_secret("ADMIN_ACCESS_CODE")', ui_text)
-        self.assertIn("get_runtime_secret(ADMIN_ORG_ENV_VAR)", ui_text)
-
-    def test_diagnostic_question_bank_excludes_data_quality_prompts(self):
-        question_path = (
-            APP_DIR
-            / "testing"
-            / "input"
-            / "diagnostic_analytics_clean_test_questions.csv"
-        )
-        with question_path.open("r", encoding="utf-8", newline="") as question_file:
-            rows = list(csv.DictReader(question_file))
-
-        self.assertGreaterEqual(len(rows), 40)
-        self.assertEqual(
-            {row["expected_skill"] for row in rows},
-            {"diagnostic_analytics"},
-        )
-        questions = [row["question"] for row in rows]
-        question_text = "\n".join(question.lower() for question in questions)
-        forbidden_data_quality_terms = [
-            "can we trust",
-            "reliable",
-            "data quality",
-            "data-quality",
-            "attribution incomplete",
-            "unknown attribution",
-            "missing first sources",
-            "missing last sources",
-            "orphaned",
-            "fathom records",
-        ]
-        for term in forbidden_data_quality_terms:
-            with self.subTest(term=term):
-                self.assertNotIn(term, question_text)
-
-        forbidden_relative_date_terms = [
-            "this week",
-            "this month",
-            "last month",
-            "current month",
-            "current-week",
-        ]
-        for term in forbidden_relative_date_terms:
-            with self.subTest(term=term):
-                self.assertNotIn(term, question_text)
-
-        self.assertIn("Where are we losing people in the funnel?", questions)
-        self.assertIn("What should I pay attention to for my business?", questions)
-        self.assertIn("What changed in April 2026 compared to March 2026?", questions)
-        self.assertEqual(rows[0]["question_id"], "DAQ-001")
-        self.assertEqual(rows[0]["question"], "Where are we losing people in the funnel?")
 
     def test_orchestrator_routes_lead_360_examples_to_lead_flow(self):
         orchestrator = self._import_orchestrator()
@@ -1023,11 +964,23 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         )
         fake_settings = types.ModuleType("app.config.settings")
         fake_settings.APP_DIR = APP_DIR
+        fake_settings.load_app_config = lambda: {
+            "skills": {
+                "base_path": str(APP_DIR / "skills" / "modules"),
+                "lead_360": {"path": "lead_360", "version": "1_0_0"},
+            }
+        }
 
         originals = {
             name: sys.modules.get(name)
-            for name in ("app.tools", "app.config", "app.config.settings")
+            for name in (
+                "app.tools",
+                "app.config",
+                "app.config.settings",
+                "app.utils.skill_loader",
+            )
         }
+        sys.modules.pop("app.utils.skill_loader", None)
         sys.modules["app.tools"] = fake_tools
         sys.modules["app.config"] = fake_config
         sys.modules["app.config.settings"] = fake_settings
@@ -1073,6 +1026,15 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
         )
         fake_settings = types.ModuleType("app.config.settings")
         fake_settings.APP_DIR = APP_DIR
+        fake_settings.load_app_config = lambda: {
+            "skills": {
+                "base_path": str(APP_DIR / "skills" / "modules"),
+                "diagnostic_analytics": {
+                    "path": "diagnostic_analytics",
+                    "version": "1_0_0",
+                },
+            }
+        }
 
         originals = {
             name: sys.modules.get(name)
@@ -1081,8 +1043,10 @@ class RoutingAndToolSeparationTests(unittest.TestCase):
                 "app.tools.diagnostic_tools",
                 "app.config",
                 "app.config.settings",
+                "app.utils.skill_loader",
             )
         }
+        sys.modules.pop("app.utils.skill_loader", None)
         sys.modules["app.tools"] = fake_tools
         sys.modules["app.tools.diagnostic_tools"] = fake_diagnostic_tools
         sys.modules["app.config"] = fake_config

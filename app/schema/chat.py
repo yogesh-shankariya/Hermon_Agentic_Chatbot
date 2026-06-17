@@ -2,30 +2,28 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatHistoryMessage(BaseModel):
     """One chat-history message supplied by the Node/frontend caller."""
 
+    model_config = ConfigDict(extra="ignore")
+
     role: str = Field(..., min_length=1)
     content: str = Field(..., min_length=1)
-
-    class Config:
-        extra = "ignore"
 
 
 class ChatRequest(BaseModel):
     """Input accepted by both FastAPI and the reusable chatbot service."""
+
+    model_config = ConfigDict(extra="ignore")
 
     question: str = Field(..., min_length=1)
     user_id: str = Field(..., min_length=1)
     org_id: str = Field(..., min_length=1)
     timezone: str = Field(..., min_length=1)
     chat_history: list[ChatHistoryMessage] = Field(default_factory=list)
-
-    class Config:
-        extra = "ignore"
 
 
 class ChatResponse(BaseModel):

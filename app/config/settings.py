@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import yaml
 from dotenv import load_dotenv
 
-from app.org_context import get_active_org_id, get_active_timezone_name
+from app.org_context import get_active_org_id
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -35,27 +35,6 @@ class SqlAgentSettings:
     default_org_id: str | None
     max_tool_rows: int
     enabled_skills: tuple[str, ...]
-    prompt_version: str
-
-
-@dataclass(frozen=True)
-class SilverTruthSettings:
-    """Runtime settings for silver-truth batch generation."""
-
-    service_tier: str | None
-
-
-@dataclass(frozen=True)
-class ContextExtractionSettings:
-    """Runtime settings for diagnostic context extraction."""
-
-    model: str
-    reasoning: dict[str, Any] | None
-    service_tier: str | None
-    prompt_cache_key: str | None
-    prompt_cache_retention: str | None
-    max_retries: int
-    prompt_version: str
 
 
 @dataclass(frozen=True)
@@ -117,13 +96,6 @@ def _validate_timezone_name(timezone_name: str, *, config_key: str) -> str:
 def get_org_timezone(org_id: str | None) -> str:
     """Return the configured IANA timezone for an organization."""
 
-    active_timezone = get_active_timezone_name()
-    if active_timezone:
-        return _validate_timezone_name(
-            active_timezone,
-            config_key="active request timezone",
-        )
-
     config = load_app_config()
     timezone_config = config.get("organization_timezones", {})
     if timezone_config is None:
@@ -158,8 +130,6 @@ def get_sql_agent_settings() -> SqlAgentSettings:
     config = load_app_config()
     llm_config = config.get("llm", {})
     agent_config = llm_config.get("sql_agent", {})
-    prompts_config = config.get("prompts", {})
-    prompt_config = prompts_config.get("sql_agent", {})
     database_config = config.get("database", {})
 
     default_org_id_env = database_config.get("default_org_id_env", "HERMON_DEFAULT_CLERK_ORG_ID")
@@ -185,66 +155,6 @@ def get_sql_agent_settings() -> SqlAgentSettings:
         default_org_id=active_org_id or os.getenv(default_org_id_env),
         max_tool_rows=max_tool_rows,
         enabled_skills=_enabled_sql_skills(agent_config),
-        prompt_version=str(prompt_config.get("version", "1_0_0")),
-    )
-
-
-def get_silver_truth_settings() -> SilverTruthSettings:
-    """Return settings for silver-truth test generation."""
-
-    config = load_app_config()
-    testing_config = config.get("testing", {})
-    silver_truth_config = testing_config.get("silver_truth", {})
-    service_tier = silver_truth_config.get("service_tier")
-
-    return SilverTruthSettings(
-        service_tier=str(service_tier) if service_tier else None,
-    )
-
-
-def get_context_extraction_settings() -> ContextExtractionSettings:
-    """Return settings for diagnostic context extraction."""
-
-    config = load_app_config()
-    llm_config = config.get("llm", {})
-    extraction_config = llm_config.get("context_extraction", {})
-    sql_agent_config = llm_config.get("sql_agent", {})
-    prompts_config = config.get("prompts", {})
-    prompt_config = prompts_config.get("extract_context", {})
-
-    model = (
-        os.getenv("OPENAI_MODEL")
-        or extraction_config.get("Model")
-        or sql_agent_config.get("Model")
-        or "gpt-5.4"
-    )
-    reasoning = extraction_config.get("reasoning")
-    if reasoning is not None and not isinstance(reasoning, dict):
-        raise RuntimeError("llm.context_extraction.reasoning must be a YAML object when provided.")
-
-    max_retries_default = int(extraction_config.get("max_retries", llm_config.get("max_retries", 2)))
-    max_retries = _int_env("HERMON_CONTEXT_EXTRACTION_MAX_RETRIES", max_retries_default)
-
-    return ContextExtractionSettings(
-        model=str(model),
-        reasoning=reasoning,
-        service_tier=(
-            str(extraction_config["service_tier"])
-            if extraction_config.get("service_tier")
-            else None
-        ),
-        prompt_cache_key=(
-            str(extraction_config["prompt_cache_key"])
-            if extraction_config.get("prompt_cache_key")
-            else None
-        ),
-        prompt_cache_retention=(
-            str(extraction_config["prompt_cache_retention"])
-            if extraction_config.get("prompt_cache_retention")
-            else None
-        ),
-        max_retries=max_retries,
-        prompt_version=str(prompt_config.get("version", "1_0_0")),
     )
 
 
@@ -253,13 +163,11 @@ def get_database_settings() -> DatabaseSettings:
 
     config = load_app_config()
     database_config = config.get("database", {})
-    url_env = database_config.get("url_env", "HERMON_DATABASE_URL")
-    fallback_url_env = database_config.get("fallback_url_env", "DATABASE_URL")
     max_rows_env = database_config.get("max_rows_env", "HERMON_SQL_MAX_ROWS")
     timeout_env = database_config.get("timeout_ms_env", "HERMON_SQL_TIMEOUT_MS")
 
     return DatabaseSettings(
-        database_url=os.getenv(url_env) or os.getenv(fallback_url_env),
+        database_url=os.getenv("HERMON_DATABASE_URL") or None,
         max_rows=_int_env(max_rows_env, int(database_config.get("max_rows", 500))),
         statement_timeout_ms=_int_env(timeout_env, int(database_config.get("timeout_ms", 10000))),
         require_org_scope=bool(database_config.get("require_org_scope", True)),

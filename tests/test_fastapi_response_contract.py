@@ -20,6 +20,40 @@ EXPECTED_RESPONSE_KEYS = {
 }
 
 
+class _FakeLangSmithRun:
+    def __init__(self, run_id: str) -> None:
+        self.id = run_id
+        self.metadata = {}
+        self.outputs = None
+        self.error = None
+
+    def end(self, *, outputs=None, error=None) -> None:
+        self.outputs = outputs
+        self.error = error
+
+
+class _FakeLangSmithTraceContext:
+    def __init__(self, run: _FakeLangSmithRun) -> None:
+        self.run = run
+
+    def __enter__(self) -> _FakeLangSmithRun:
+        return self.run
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        return None
+
+
+class _FakeLangSmithTrace:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def __call__(self, name, **kwargs):
+        run_id = "trace_123" if kwargs.get("parent") is None else f"child_{len(self.calls)}"
+        run = _FakeLangSmithRun(run_id)
+        self.calls.append((name, kwargs, run))
+        return _FakeLangSmithTraceContext(run)
+
+
 class FastApiResponseContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
@@ -33,6 +67,38 @@ class FastApiResponseContractTests(unittest.TestCase):
                 {"role": "assistant", "content": "Previous answer"},
             ],
         }
+
+    def _successful_turn(self) -> dict:
+        return {
+            "question": self.payload["question"],
+            "organization_id": self.payload["org_id"],
+            "timezone": self.payload["timezone"],
+            "chat_history_count": 2,
+            "route": "unsupported",
+            "selected_skill": None,
+            "standalone_question": self.payload["question"],
+            "router_response": {"route": "unsupported"},
+            "answer": "Final answer",
+            "elapsed_seconds": 0.01,
+            "timing": {},
+            "trace_messages": [],
+            "execution_details": {},
+        }
+
+    def test_root_returns_api_info_for_cloud_browser_checks(self) -> None:
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["health"], "/health")
+        self.assertEqual(data["chat"], "/chat")
+        self.assertEqual(data["stream"], "/chat/stream")
+
+    def test_favicon_is_quiet_no_content(self) -> None:
+        response = self.client.get("/favicon.ico")
+
+        self.assertEqual(response.status_code, 204)
 
     def test_chat_success_returns_minimal_schema(self) -> None:
         service_response = ChatResponse(
@@ -105,6 +171,42 @@ class FastApiResponseContractTests(unittest.TestCase):
         self.assertEqual(response.message, "User ID is required.")
         self.assertIsNone(response.answer)
         run_turn_mock.assert_not_called()
+
+    def test_service_returns_langsmith_trace_id_when_tracing_can_persist(self) -> None:
+        request = ChatRequest(**self.payload)
+        fake_trace = _FakeLangSmithTrace()
+
+        with (
+            patch("app.services.chatbot_service._langsmith_tracing_can_persist", return_value=True),
+            patch("app.services.chatbot_service.langsmith_trace", fake_trace),
+            patch(
+                "app.services.chatbot_service.run_chatbot_turn",
+                return_value=self._successful_turn(),
+            ),
+        ):
+            response = chatbot_service.run_chatbot(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.trace_id, "trace_123")
+        self.assertEqual(fake_trace.calls[0][0], "/chat request")
+
+    def test_service_omits_trace_id_when_langsmith_cannot_persist(self) -> None:
+        request = ChatRequest(**self.payload)
+        fake_trace = _FakeLangSmithTrace()
+
+        with (
+            patch("app.services.chatbot_service._langsmith_tracing_can_persist", return_value=False),
+            patch("app.services.chatbot_service.langsmith_trace", fake_trace),
+            patch(
+                "app.services.chatbot_service.run_chatbot_turn",
+                return_value=self._successful_turn(),
+            ),
+        ):
+            response = chatbot_service.run_chatbot(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.trace_id)
+        self.assertEqual(fake_trace.calls, [])
 
     def test_stream_sends_status_route_and_done_events(self) -> None:
         def fake_run_chatbot(request, *, progress_callback=None):

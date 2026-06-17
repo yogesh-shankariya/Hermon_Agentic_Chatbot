@@ -1,13 +1,6 @@
 llm:
   max_retries: 2
 
-  context_extraction:
-    Model: "gpt-5.4"
-    service_tier: "flex"
-    prompt_cache_key: "hermon_context_extraction_v1"
-    prompt_cache_retention: "24h"
-    max_retries: 2
-
   # Generic SQL agent config. By default, enabled skills come from
   # app/skills/registry.yaml; set enabled_skills to a YAML list to restrict
   # production to a subset.
@@ -21,10 +14,8 @@ llm:
     enabled_skills: "all"
 
 database:
-  # Environment variable names are configurable so deployments can reuse this
-  # package without changing code.
-  url_env: "HERMON_DATABASE_URL"
-  fallback_url_env: "DATABASE_URL"
+  # The chatbot must connect only through Hermon's configured read-only org URL.
+  # Do not add DATABASE_URL or any fallback database URL here.
   default_org_id_env: "HERMON_DEFAULT_CLERK_ORG_ID"
   max_rows_env: "HERMON_SQL_MAX_ROWS"
   timeout_ms_env: "HERMON_SQL_TIMEOUT_MS"
@@ -36,20 +27,52 @@ organization_timezones:
   default_timezone: "UTC"
   by_org_id:
     org_3ARuGHeqbbEu5FNexlpC7ElaiyW: "Europe/Amsterdam"
-    # org_3ARuGHeqbbEu5FNexlpC7ElaiyW: "Asia/Kolkata"
 
 prompts:
   base_path: "app/prompts"
+  router_path: "router"
+  sql_agent_path: "sql_agent"
+  sql_answer_path: "sql_answer"
 
-  # Prompt files are versioned as app/prompts/<agent>/<version>.yaml.
+  # Prompt files are versioned as app/prompts/<agent>/<version>.md.
+  router:
+    version: "1_0_0"
+
   sql_agent:
     version: "1_0_0"
-  extract_context:
+
+  sql_answer:
     version: "1_0_0"
 
-testing:
-  silver_truth:
-    # Flex is lower cost but slower and can be unavailable; keep production on
-    # the default service tier by leaving llm.sql_agent.service_tier unset.
-    # Set to "default" to use normal processing instead of flex.
-    service_tier: "flex"
+skills:
+  base_path: "app/skills/modules"
+
+  # Skill instruction files are versioned as
+  # app/skills/modules/<skill>/<version>.md.
+  lead_analytics:
+    path: "lead_analytics"
+    version: "1_0_0"
+
+  appointment_analytics:
+    path: "appointment_analytics"
+    version: "1_0_0"
+
+  acquisition_analytics:
+    path: "acquisition_analytics"
+    version: "1_0_0"
+
+  lead_profile_analytics:
+    path: "lead_profile_analytics"
+    version: "1_0_0"
+
+  revenue_analytics:
+    path: "revenue_analytics"
+    version: "1_0_0"
+
+  lead_360:
+    path: "lead_360"
+    version: "1_0_0"
+
+  diagnostic_analytics:
+    path: "diagnostic_analytics"
+    version: "1_0_0"

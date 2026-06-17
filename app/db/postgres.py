@@ -1,6 +1,6 @@
 """Safe read-only Postgres helper for Hermon SQL analytics.
 
-Use this module from notebooks, APIs, and future LangGraph tools:
+Use this module from APIs, tests, and future LangGraph tools:
 
     from app.db import get_db
     db = get_db()
@@ -16,6 +16,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
@@ -24,7 +25,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from app.config import get_database_settings
-from app.org_context import get_active_timezone_name
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -66,10 +66,28 @@ def _sqlalchemy_psycopg_url(database_url: str) -> str:
 
     clean_url = database_url.strip()
     if clean_url.startswith("postgresql://"):
-        return clean_url.replace("postgresql://", "postgresql+psycopg://", 1)
-    if clean_url.startswith("postgres://"):
-        return clean_url.replace("postgres://", "postgresql+psycopg://", 1)
-    return clean_url
+        clean_url = clean_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    elif clean_url.startswith("postgres://"):
+        clean_url = clean_url.replace("postgres://", "postgresql+psycopg://", 1)
+
+    parsed_url = urlsplit(clean_url)
+    query_pairs = [
+        (key, value)
+        for key, value in parse_qsl(parsed_url.query, keep_blank_values=True)
+        if key.lower() != "pgbouncer"
+    ]
+    if query_pairs == parse_qsl(parsed_url.query, keep_blank_values=True):
+        return clean_url
+
+    return urlunsplit(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            parsed_url.path,
+            urlencode(query_pairs),
+            parsed_url.fragment,
+        )
+    )
 
 
 BUSINESS_TABLES = {
@@ -225,12 +243,11 @@ class ReadOnlyPostgres:
         timezone_name: str | None = None,
     ) -> pd.DataFrame:
         engine = self._get_engine()
-        effective_timezone = timezone_name or get_active_timezone_name()
         with engine.connect() as conn:
             transaction = conn.begin()
             try:
                 conn.exec_driver_sql("SET TRANSACTION READ ONLY")
-                self._set_local_timezone(conn, effective_timezone)
+                self._set_local_timezone(conn, timezone_name)
                 conn.exec_driver_sql(
                     f"SET LOCAL statement_timeout = {int(self.config.statement_timeout_ms)}"
                 )
@@ -250,12 +267,11 @@ class ReadOnlyPostgres:
         timezone_name: str | None = None,
     ) -> list[dict[str, Any]]:
         engine = self._get_engine()
-        effective_timezone = timezone_name or get_active_timezone_name()
         with engine.connect() as conn:
             transaction = conn.begin()
             try:
                 conn.exec_driver_sql("SET TRANSACTION READ ONLY")
-                self._set_local_timezone(conn, effective_timezone)
+                self._set_local_timezone(conn, timezone_name)
                 statement_timeout_ms = int(timeout_ms or self.config.statement_timeout_ms)
                 conn.exec_driver_sql(
                     f"SET LOCAL statement_timeout = {statement_timeout_ms}"
@@ -271,7 +287,7 @@ class ReadOnlyPostgres:
     def _get_engine(self) -> Engine:
         database_url = self.config.database_url
         if not database_url:
-            raise RuntimeError("Missing HERMON_DATABASE_URL or DATABASE_URL in .env.")
+            raise RuntimeError("Missing HERMON_DATABASE_URL in .env.")
         if self._engine is None:
             self._engine = create_engine(
                 _sqlalchemy_psycopg_url(database_url),

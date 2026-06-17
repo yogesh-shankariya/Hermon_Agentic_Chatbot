@@ -10,7 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-APP_DIR = Path(__file__).resolve().parents[1] / "app"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+APP_DIR = PROJECT_ROOT / "app"
 
 
 def _install_fake_langchain_if_needed() -> None:
@@ -97,24 +98,28 @@ def _load_sql_tools_module():
 
 class SqlToolDateDefaultTests(unittest.TestCase):
     def test_prompts_default_generic_lead_trend_to_monthly_previous_three_months(self):
-        sql_prompt = (APP_DIR / "prompts" / "sql_agent" / "1_0_0.yaml").read_text(
+        sql_prompt = (APP_DIR / "prompts" / "sql_agent" / "1_0_0.md").read_text(
             encoding="utf-8"
         )
-        lead_skill = (APP_DIR / "skills" / "modules" / "lead_analytics.md").read_text(
-            encoding="utf-8"
-        )
+        lead_skill = (
+            APP_DIR / "skills" / "modules" / "lead_analytics" / "1_0_0.md"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("If the user asks for a generic trend", sql_prompt)
         self.assertIn("use a monthly lead creation trend over the previous 3 completed months", sql_prompt)
         self.assertIn("Do not use the daily last-10-days default for generic lead trend", sql_prompt)
+        self.assertIn(
+            "Do not rely on the application fallback for current-month or month-to-date questions",
+            sql_prompt,
+        )
         self.assertIn("Lead Creation Trend Defaults", lead_skill)
         self.assertIn("use a monthly lead creation trend by default", lead_skill)
         self.assertIn("previous 3 completed months", lead_skill)
 
     def test_new_leads_with_date_means_created_leads_not_status(self):
-        lead_skill = (APP_DIR / "skills" / "modules" / "lead_analytics.md").read_text(
-            encoding="utf-8"
-        )
+        lead_skill = (
+            APP_DIR / "skills" / "modules" / "lead_analytics" / "1_0_0.md"
+        ).read_text(encoding="utf-8")
 
         self.assertIn(
             'When the user asks for "new leads" with a date or date range',
@@ -123,6 +128,7 @@ class SqlToolDateDefaultTests(unittest.TestCase):
         self.assertIn("This matches the dashboard \"New Leads\" metric.", lead_skill)
         self.assertIn("Use `l.created_at` and do not filter by current pipeline status.", lead_skill)
         self.assertIn("Europe/Amsterdam local dates", lead_skill)
+        self.assertIn("pass the runtime context current month window as concrete tool params", lead_skill)
         self.assertNotIn(
             'When the user asks for "new leads today", "new leads this week", or "new leads this month", combine',
             lead_skill,
@@ -130,14 +136,14 @@ class SqlToolDateDefaultTests(unittest.TestCase):
 
     def test_appointment_dashboard_kpi_rules_use_latest_appointment_per_lead(self):
         appointment_skill = (
-            APP_DIR / "skills" / "modules" / "appointment_analytics.md"
+            APP_DIR / "skills" / "modules" / "appointment_analytics" / "1_0_0.md"
         ).read_text(encoding="utf-8")
         sql_prompt = (
-            APP_DIR / "prompts" / "sql_agent" / "1_0_0.yaml"
+            APP_DIR / "prompts" / "sql_agent" / "1_0_0.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn("Dashboard-Aligned KPI Metrics", appointment_skill)
-        self.assertIn("app/testing/dashboard_metrics_reference.md", appointment_skill)
+        self.assertIn("docs/dashboard_metrics_reference.md", appointment_skill)
         self.assertIn("Asia/Kolkata", appointment_skill)
         self.assertIn("displayed end date as inclusive", sql_prompt)
         self.assertIn('"end_date":"2026-05-17"', sql_prompt)
@@ -169,7 +175,7 @@ class SqlToolDateDefaultTests(unittest.TestCase):
 
     def test_appointment_calls_taken_rejects_no_show_false_only_logic(self):
         appointment_skill = (
-            APP_DIR / "skills" / "modules" / "appointment_analytics.md"
+            APP_DIR / "skills" / "modules" / "appointment_analytics" / "1_0_0.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn("Do not use `a.no_show = false` alone", appointment_skill)
@@ -183,7 +189,7 @@ class SqlToolDateDefaultTests(unittest.TestCase):
 
     def test_appointment_dashboard_bundle_covers_may_kpi_wording(self):
         appointment_skill = (
-            APP_DIR / "skills" / "modules" / "appointment_analytics.md"
+            APP_DIR / "skills" / "modules" / "appointment_analytics" / "1_0_0.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn(
@@ -205,10 +211,10 @@ class SqlToolDateDefaultTests(unittest.TestCase):
 
     def test_plain_show_rate_defaults_to_dashboard_booked_show_rate(self):
         appointment_skill = (
-            APP_DIR / "skills" / "modules" / "appointment_analytics.md"
+            APP_DIR / "skills" / "modules" / "appointment_analytics" / "1_0_0.md"
         ).read_text(encoding="utf-8")
         dashboard_reference = (
-            APP_DIR / "testing" / "dashboard_metrics_reference.md"
+            PROJECT_ROOT / "docs" / "dashboard_metrics_reference.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn("plain \"show rate\"", appointment_skill)
@@ -226,10 +232,10 @@ class SqlToolDateDefaultTests(unittest.TestCase):
 
     def test_cancelled_and_cancel_rate_use_latest_per_lead_dashboard_logic(self):
         appointment_skill = (
-            APP_DIR / "skills" / "modules" / "appointment_analytics.md"
+            APP_DIR / "skills" / "modules" / "appointment_analytics" / "1_0_0.md"
         ).read_text(encoding="utf-8")
         dashboard_reference = (
-            APP_DIR / "testing" / "dashboard_metrics_reference.md"
+            PROJECT_ROOT / "docs" / "dashboard_metrics_reference.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn("`cancelled`: count latest-per-lead rows", appointment_skill)
@@ -260,10 +266,10 @@ class SqlToolDateDefaultTests(unittest.TestCase):
 
     def test_secondary_dashboard_appointment_kpis_use_latest_per_lead_logic(self):
         appointment_skill = (
-            APP_DIR / "skills" / "modules" / "appointment_analytics.md"
+            APP_DIR / "skills" / "modules" / "appointment_analytics" / "1_0_0.md"
         ).read_text(encoding="utf-8")
         dashboard_reference = (
-            APP_DIR / "testing" / "dashboard_metrics_reference.md"
+            PROJECT_ROOT / "docs" / "dashboard_metrics_reference.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn("Dashboard-style rescheduled calls", appointment_skill)
@@ -294,7 +300,7 @@ class SqlToolDateDefaultTests(unittest.TestCase):
 
     def test_revenue_new_cash_collected_uses_first_payment_and_deposit_gross(self):
         revenue_skill = (
-            APP_DIR / "skills" / "modules" / "revenue_analytics.md"
+            APP_DIR / "skills" / "modules" / "revenue_analytics" / "1_0_0.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn("Dashboard New Cash Collected", revenue_skill)
@@ -310,7 +316,7 @@ class SqlToolDateDefaultTests(unittest.TestCase):
 
     def test_revenue_cash_collected_subtracts_only_associated_refunds(self):
         revenue_skill = (
-            APP_DIR / "skills" / "modules" / "revenue_analytics.md"
+            APP_DIR / "skills" / "modules" / "revenue_analytics" / "1_0_0.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn(
@@ -331,10 +337,10 @@ class SqlToolDateDefaultTests(unittest.TestCase):
 
     def test_plain_close_rate_defaults_to_dashboard_taken_close_rate(self):
         revenue_skill = (
-            APP_DIR / "skills" / "modules" / "revenue_analytics.md"
+            APP_DIR / "skills" / "modules" / "revenue_analytics" / "1_0_0.md"
         ).read_text(encoding="utf-8")
         dashboard_reference = (
-            APP_DIR / "testing" / "dashboard_metrics_reference.md"
+            PROJECT_ROOT / "docs" / "dashboard_metrics_reference.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn("Dashboard Close Rate Metrics", revenue_skill)
@@ -356,10 +362,10 @@ class SqlToolDateDefaultTests(unittest.TestCase):
 
     def test_revenue_closed_without_call_uses_signed_contracts_missing_period_appointments(self):
         revenue_skill = (
-            APP_DIR / "skills" / "modules" / "revenue_analytics.md"
+            APP_DIR / "skills" / "modules" / "revenue_analytics" / "1_0_0.md"
         ).read_text(encoding="utf-8")
         dashboard_reference = (
-            APP_DIR / "testing" / "dashboard_metrics_reference.md"
+            PROJECT_ROOT / "docs" / "dashboard_metrics_reference.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn("Dashboard Closed Without Call", revenue_skill)
@@ -531,6 +537,50 @@ class SqlToolDateDefaultTests(unittest.TestCase):
         self.assertEqual(payload["effective_params"]["timezone"], "Europe/Amsterdam")
         self.assertEqual(payload["effective_params"]["start_date"], "2026-04-01")
         self.assertEqual(payload["effective_params"]["end_date"], "2026-05-01")
+
+    def test_run_readonly_sql_uses_active_request_timezone_over_org_config(self):
+        module = _load_sql_tools_module()
+        from app.org_context import active_org_context
+
+        calls = []
+
+        class FakeDb:
+            def query_records(self, sql, params, *, max_rows, timezone_name=None):
+                calls.append(
+                    {
+                        "params": dict(params),
+                        "timezone_name": timezone_name,
+                    }
+                )
+                return [{"lead_count": 96}]
+
+        module.get_db = lambda: FakeDb()
+        module.get_sql_agent_settings = lambda: SimpleNamespace(
+            default_org_id="org_new",
+            enabled_skills=("lead_analytics",),
+            max_tool_rows=20,
+        )
+        module.get_org_timezone = lambda org_id: "UTC"
+        module._today_in_timezone = lambda timezone_name: date(2026, 6, 9)
+
+        with active_org_context("org_new", timezone_name="Europe/Amsterdam"):
+            response = module.run_readonly_sql.invoke(
+                {
+                    "query": (
+                        "SELECT COUNT(*) AS lead_count FROM leads "
+                        "WHERE clerk_org_id = :org_id "
+                        "AND created_at >= :start_date "
+                        "AND created_at < :end_date"
+                    ),
+                    "params_json": '{"start_date":"2026-06-01","end_date":"2026-07-01"}',
+                }
+            )
+
+        payload = json.loads(response)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(calls[0]["timezone_name"], "Europe/Amsterdam")
+        self.assertEqual(payload["effective_params"]["timezone"], "Europe/Amsterdam")
+        self.assertEqual(payload["rows"], [{"lead_count": 96}])
 
 
 if __name__ == "__main__":

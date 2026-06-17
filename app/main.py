@@ -8,7 +8,7 @@ import threading
 from collections.abc import Iterator
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -19,9 +19,26 @@ from app.services.chatbot_service import response_to_dict, run_chatbot
 app = FastAPI(title="Hermon Chatbot Service")
 
 
+@app.get("/")
+def root() -> dict[str, str]:
+    return {
+        "service": "Hermon Chatbot Service",
+        "status": "ok",
+        "health": "/health",
+        "chat": "/chat",
+        "stream": "/chat/stream",
+        "docs": "/docs",
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> Response:
+    return Response(status_code=204)
 
 
 def _validation_message(exc: RequestValidationError) -> str:

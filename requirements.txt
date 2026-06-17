@@ -3,7 +3,7 @@ PyYAML
 SQLAlchemy
 psycopg[binary]
 python-dotenv
-pydantic
+pydantic>=2
 fastapi
 uvicorn
 langchain[openai]

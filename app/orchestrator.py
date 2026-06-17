@@ -6,15 +6,13 @@ import json
 import re
 from collections.abc import Callable, Sequence
 from enum import Enum
-from pathlib import Path
 from typing import Any
 
 from app.schema.router import RouterResponse, RouterRoute
+from app.utils.prompt_loader import load_prompt
 
 
 MAX_ROUTER_HISTORY = 5
-APP_DIR = Path(__file__).resolve().parent
-ROUTER_PROMPT_PATH = APP_DIR / "prompts" / "router.md"
 UNSUPPORTED_MESSAGE = (
     "That request is not supported. I can help with read-only analytics or a safe "
     "single-lead Lead 360 view."
@@ -465,7 +463,7 @@ def _format_router_user_input(current_question: str, history: list[dict[str, str
 def build_router_messages(current_question: str, history: list[dict[str, str]]) -> list[Any]:
     """Build messages for the routing model."""
 
-    system_prompt = ROUTER_PROMPT_PATH.read_text(encoding="utf-8").strip()
+    system_prompt = load_prompt("router").system
     user_input = _format_router_user_input(current_question, history)
 
     try:
@@ -602,6 +600,7 @@ def selected_history_for_route(
 def build_downstream_messages(
     standalone_question: str,
     selected_history: list[dict[str, str]],
+    runtime_context: str | None = None,
 ) -> list[dict[str, str]]:
     """Build the exact message window allowed for the selected downstream flow."""
 
@@ -613,6 +612,8 @@ def build_downstream_messages(
                 {"role": "assistant", "content": turn["answer"]},
             ]
         )
+    if runtime_context:
+        messages.append({"role": "system", "content": runtime_context})
     messages.append({"role": "user", "content": standalone_question})
     return messages
 
@@ -712,6 +713,7 @@ def answer_user_question(
     sql_agent_factory: Callable[[], Any] = create_default_sql_agent,
     lead_360_agent_factory: Callable[[], Any] = create_default_lead_360_agent,
     diagnostic_agent_factory: Callable[[], Any] = create_default_diagnostic_agent,
+    runtime_context: str | None = None,
 ) -> dict[str, Any]:
     """Route first, then dispatch to exactly one allowed downstream flow."""
 
@@ -754,6 +756,7 @@ def answer_user_question(
     messages = build_downstream_messages(
         router_response.standalone_question,
         selected_history,
+        runtime_context=runtime_context,
     )
 
     if router_response.route == RouterRoute.SQL_ANALYTICS:

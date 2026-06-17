@@ -4,13 +4,8 @@ import os
 import unittest
 from unittest.mock import patch
 
-from app.config import get_org_timezone, get_sql_agent_settings
-from app.org_context import (
-    active_org_context,
-    active_timezone_context,
-    get_active_org_id,
-    get_active_timezone_name,
-)
+from app.config import get_database_settings, get_org_timezone, get_sql_agent_settings
+from app.org_context import active_org_context, get_active_org_id, get_active_timezone
 
 
 class OrgContextTests(unittest.TestCase):
@@ -20,10 +15,44 @@ class OrgContextTests(unittest.TestCase):
 
             with active_org_context("org_demo"):
                 self.assertEqual(get_active_org_id(), "org_demo")
+                self.assertIsNone(get_active_timezone())
                 self.assertEqual(get_sql_agent_settings().default_org_id, "org_demo")
 
             self.assertIsNone(get_active_org_id())
+            self.assertIsNone(get_active_timezone())
             self.assertEqual(get_sql_agent_settings().default_org_id, "org_live")
+
+    def test_org_context_can_scope_request_timezone(self):
+        with active_org_context("org_demo", timezone_name="Europe/Amsterdam"):
+            self.assertEqual(get_active_org_id(), "org_demo")
+            self.assertEqual(get_active_timezone(), "Europe/Amsterdam")
+
+        self.assertIsNone(get_active_org_id())
+        self.assertIsNone(get_active_timezone())
+
+    def test_database_settings_use_only_hermon_database_url(self):
+        with patch.dict(
+            os.environ,
+            {
+                "HERMON_DATABASE_URL": "",
+                "DATABASE_URL": "postgresql://wrong-fallback/db",
+            },
+            clear=False,
+        ):
+            self.assertIsNone(get_database_settings().database_url)
+
+        with patch.dict(
+            os.environ,
+            {
+                "HERMON_DATABASE_URL": "postgresql://hermon-org/db",
+                "DATABASE_URL": "postgresql://wrong-fallback/db",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                get_database_settings().database_url,
+                "postgresql://hermon-org/db",
+            )
 
     def test_configured_org_timezone_is_used(self):
         config = {
@@ -68,29 +97,6 @@ class OrgContextTests(unittest.TestCase):
         with patch("app.config.settings.load_app_config", return_value=config):
             with self.assertRaisesRegex(RuntimeError, "invalid IANA timezone"):
                 get_org_timezone("org_bad")
-
-    def test_active_timezone_context_overrides_configured_org_timezone(self):
-        config = {
-            "organization_timezones": {
-                "default_timezone": "UTC",
-                "by_org_id": {
-                    "org_demo": "Europe/Amsterdam",
-                },
-            }
-        }
-
-        with patch("app.config.settings.load_app_config", return_value=config):
-            with active_timezone_context("Asia/Kolkata"):
-                self.assertEqual(get_active_timezone_name(), "Asia/Kolkata")
-                self.assertEqual(get_org_timezone("org_demo"), "Asia/Kolkata")
-
-            self.assertIsNone(get_active_timezone_name())
-            self.assertEqual(get_org_timezone("org_demo"), "Europe/Amsterdam")
-
-    def test_active_timezone_context_rejects_invalid_timezone(self):
-        with self.assertRaisesRegex(ValueError, "Invalid IANA timezone"):
-            with active_timezone_context("Amsterdam"):
-                pass
 
 
 if __name__ == "__main__":

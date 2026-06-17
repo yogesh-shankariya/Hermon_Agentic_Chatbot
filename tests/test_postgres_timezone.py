@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from app.org_context import active_timezone_context
 from app.db.postgres import (
     QueryValidationError,
     ReadOnlyPostgres,
@@ -96,26 +95,6 @@ class ReadOnlyPostgresTimezoneTests(unittest.TestCase):
         self.assertFalse(connection.transaction.rolled_back)
         self.assertIn("LIMIT 5", connection.executed[0]["statement"])
 
-    def test_query_records_uses_active_timezone_context_when_argument_omitted(self):
-        connection = FakeConnection()
-        runner = self._runner_with_connection(connection)
-
-        with active_timezone_context("Asia/Kolkata"):
-            rows = runner.query_records(
-                "SELECT 1 AS answer",
-                params={"org_id": "org_demo"},
-            )
-
-        self.assertEqual(rows, [{"answer": 1}])
-        self.assertEqual(
-            connection.commands,
-            [
-                "SET TRANSACTION READ ONLY",
-                "SET LOCAL TIME ZONE 'Asia/Kolkata'",
-                "SET LOCAL statement_timeout = 4321",
-            ],
-        )
-
     def test_query_records_rejects_invalid_timezone(self):
         connection = FakeConnection()
         runner = self._runner_with_connection(connection)
@@ -141,6 +120,14 @@ class ReadOnlyPostgresUrlTests(unittest.TestCase):
             "postgresql+psycopg://user:pass@example/db",
         )
 
+    def test_supabase_pooler_pgbouncer_query_param_is_removed(self):
+        self.assertEqual(
+            _sqlalchemy_psycopg_url(
+                "postgresql://user:pass@example/db?sslmode=require&pgbouncer=true&connect_timeout=10"
+            ),
+            "postgresql+psycopg://user:pass@example/db?sslmode=require&connect_timeout=10",
+        )
+
     def test_get_engine_normalizes_database_url_before_create_engine(self):
         created_engine = object()
         runner = ReadOnlyPostgres(
@@ -157,6 +144,17 @@ class ReadOnlyPostgresUrlTests(unittest.TestCase):
             create_engine.call_args.args[0],
             "postgresql+psycopg://user:pass@example/db",
         )
+
+    def test_get_engine_requires_hermon_database_url_only(self):
+        runner = ReadOnlyPostgres(
+            config=ReadOnlyQueryConfig(
+                database_url=None,
+                require_org_scope=False,
+            )
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Missing HERMON_DATABASE_URL in .env"):
+            runner._get_engine()
 
 
 if __name__ == "__main__":

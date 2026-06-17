@@ -800,9 +800,9 @@ class DiagnosticToolLayerTests(unittest.TestCase):
         self.assertIn("without a tracked Completed a call record", offset_row["reconciliation_note"])
 
     def test_diagnostic_prompt_contains_funnel_answer_rules(self):
-        prompt_text = (APP_DIR / "skills" / "modules" / "diagnostic_analytics.md").read_text(
-            encoding="utf-8"
-        )
+        prompt_text = (
+            APP_DIR / "skills" / "modules" / "diagnostic_analytics" / "1_0_0.md"
+        ).read_text(encoding="utf-8")
 
         self.assertIn(
             "For broad funnel leakage questions, always show the mutually exclusive final-stage funnel table first.",

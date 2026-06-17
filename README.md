@@ -1,47 +1,68 @@
-# Hermon Agentic Chatbot
+# Hermon Agentic Chatbot API
 
-Text-to-SQL chatbot for Hermon analytics with Streamlit and local FastAPI entrypoints.
+FastAPI service for Hermon analytics Q&A. The API routes each request to one
+safe backend flow:
 
-## Hermon Q&A Agent Prototype
+- SQL analytics with read-only, tenant-scoped Postgres queries.
+- Lead 360 for a single-lead context view.
+- Diagnostic analytics using controlled diagnostic snapshot tools.
 
-Install dependencies:
+This repository is API-only. It intentionally does not include Streamlit,
+notebooks, generated artifacts, local seed scripts, or scratchpad instructions.
+
+## Requirements
+
+- Python 3.12
+- Postgres database access
+- OpenAI API key
+
+Install runtime dependencies:
 
 ```bash
-python3 -m pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 ```
 
-Required `.env` values:
+For tests:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+## Configuration
+
+Copy `.env.example` to `.env` and set the deployment values:
 
 ```bash
 OPENAI_API_KEY="..."
-HERMON_DATABASE_URL="postgresql+psycopg://..."
-HERMON_DEFAULT_CLERK_ORG_ID="..."
+HERMON_DATABASE_URL="postgresql+psycopg://user:password@host:5432/database"
+HERMON_DEFAULT_CLERK_ORG_ID="org_..."
+LANGSMITH_TRACING="true"
+LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
+LANGSMITH_API_KEY="..."
+LANGSMITH_PROJECT="hermon-prod"
 ```
 
-For the Streamlit UI access modes, configure these locally in `.env` or
-Streamlit secrets:
-
-```bash
-DEMO_ORG_ID="..."
-LIVE_ORG_ID="..."
-ADMIN_ACCESS_CODE="..."
-DEMO_TIMEZONE="Europe/Amsterdam"
-LIVE_TIMEZONE="Europe/Amsterdam"
-```
-
-Optional `.env` value:
+Optional environment variables:
 
 ```bash
 OPENAI_MODEL="gpt-5.4"
+HERMON_SQL_MAX_ROWS="500"
+HERMON_SQL_TIMEOUT_MS="10000"
+HERMON_AGENT_MAX_TOOL_ROWS="20"
 ```
 
-Run the Streamlit chat UI:
+For DigitalOcean App Platform, set these as app-level environment variables on
+the deployed Docker app. Mark `OPENAI_API_KEY`, `HERMON_DATABASE_URL`, and
+`LANGSMITH_API_KEY` as encrypted secrets.
 
-```bash
-streamlit run app/ui/streamlit_app.py
-```
+The `/chat` and `/chat/stream` responses include `trace_id` only when LangSmith
+tracing is enabled and configured well enough to persist hosted traces.
 
-Run the local FastAPI chatbot service:
+Runtime defaults live in `app/config/config.yaml`.
+
+## Run Locally
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -53,7 +74,7 @@ Health check:
 curl http://localhost:8000/health
 ```
 
-Chat test:
+Chat request:
 
 ```bash
 curl -X POST http://localhost:8000/chat \
@@ -61,59 +82,93 @@ curl -X POST http://localhost:8000/chat \
   -d '{
     "question": "Show me revenue trend",
     "user_id": "user_123",
-    "org_id": "org_xxx",
+    "org_id": "org_123",
     "timezone": "Europe/Amsterdam",
     "chat_history": []
   }'
 ```
 
-### Streamlit Community Cloud secrets
+Streaming chat:
 
-Do not upload `.env` to Streamlit Community Cloud. Instead, open the app's
-settings in Streamlit Community Cloud and paste the same values into
-**Secrets** as top-level TOML keys:
-
-```toml
-OPENAI_API_KEY = "..."
-HERMON_DATABASE_URL = "postgresql+psycopg://..."
-HERMON_DEFAULT_CLERK_ORG_ID = "..."
-
-DEMO_ORG_ID = "..."
-LIVE_ORG_ID = "..."
-ADMIN_ACCESS_CODE = "..."
-DEMO_TIMEZONE = "Europe/Amsterdam"
-LIVE_TIMEZONE = "Europe/Amsterdam"
+```bash
+curl -N -X POST http://localhost:8000/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Where are we losing people in the funnel?",
+    "user_id": "user_123",
+    "org_id": "org_123",
+    "timezone": "Europe/Amsterdam",
+    "chat_history": []
+  }'
 ```
 
-The Streamlit UI reads `DEMO_ORG_ID`, `LIVE_ORG_ID`, `ADMIN_ACCESS_CODE`,
-`DEMO_TIMEZONE`, and `LIVE_TIMEZONE` from `st.secrets` first, then falls back
-to environment variables for local development. Admin mode also exposes manual
-Organization ID and Timezone fields for testing dev databases with a specific
-org/timezone pair. Keep local `.streamlit/secrets.toml` and `.env` files out of
-git.
+## Test
+
+```bash
+python -m pytest
+```
 
 ## Project Structure
 
-| Path | Purpose |
-|---|---|
-| `app/agents/sql_agent/` | Generic LangChain SQL agent factory and middleware. |
-| `app/tools/` | Agent tool implementations, including SQL validation and execution tools. |
-| `app/config/config.yaml` | Model, prompt version, database, and Streamlit runtime config. |
-| `app/prompts/sql_agent/` | Versioned YAML prompt for SQL generation behavior. |
-| `app/services/` | Streamlit-free chatbot service used by FastAPI and the UI. |
-| `app/schema/` | Pydantic schemas for routing, extraction, and chat API payloads. |
-| `app/skills/` | Skill registry and Markdown skill instructions loaded by the agent. |
-| `app/db/` | Read-only Postgres helper and SQL safety validation. |
-| `app/ui/` | Streamlit application. |
-| `app/docs/` | SQL/test reference documentation. |
-| `notebooks/` | Jupyter notebooks only. |
-
-Cross-check expected SQL and tabular outputs:
-
 ```text
-app/docs/lead_analytics_expected_sql.md
+.
+├── app/
+│   ├── agents/
+│   │   ├── diagnostic_agent/
+│   │   ├── lead_360/
+│   │   └── sql_agent/
+│   ├── config/
+│   ├── db/
+│   ├── prompts/
+│   │   ├── router/
+│   │   │   └── 1_0_0.md
+│   │   └── sql_agent/
+│   │       └── 1_0_0.md
+│   ├── schema/
+│   ├── services/
+│   ├── skills/
+│   │   ├── modules/
+│   │   │   ├── lead_analytics/
+│   │   │   │   └── 1_0_0.md
+│   │   │   ├── appointment_analytics/
+│   │   │   │   └── 1_0_0.md
+│   │   │   ├── acquisition_analytics/
+│   │   │   │   └── 1_0_0.md
+│   │   │   ├── lead_profile_analytics/
+│   │   │   │   └── 1_0_0.md
+│   │   │   ├── revenue_analytics/
+│   │   │   │   └── 1_0_0.md
+│   │   │   ├── diagnostic_analytics/
+│   │   │   │   └── 1_0_0.md
+│   │   │   └── lead_360/
+│   │   │       └── 1_0_0.md
+│   │   └── registry.yaml
+│   ├── tools/
+│   ├── utils/
+│   ├── main.py
+│   └── orchestrator.py
+├── docs/
+├── tests/
+├── Dockerfile
+├── pyproject.toml
+├── requirements.txt
+└── requirements-dev.txt
 ```
 
-The default SQL agent config enables every skill listed in
-`app/skills/registry.yaml`. SQL is executed through `app.db.get_db()`, which
-validates read-only SQL and runs it in a read-only transaction.
+| Path | Purpose |
+|---|---|
+| `app/main.py` | FastAPI entrypoint and response/streaming contract. |
+| `app/services/` | UI-independent chatbot execution service. |
+| `app/orchestrator.py` | Router-first flow selection and downstream dispatch. |
+| `app/agents/` | LangChain agent factories for SQL, Lead 360, and diagnostics. |
+| `app/tools/` | Read-only SQL, Lead 360, and diagnostic tool implementations. |
+| `app/db/` | Safe read-only Postgres helper and SQL validation. |
+| `app/schema/` | Pydantic request/response and router schemas. |
+| `app/prompts/` | Versioned agent prompt files selected from `app/config/config.yaml`. |
+| `app/skills/` | Versioned SQL, Lead 360, and diagnostic instruction modules selected from `app/config/config.yaml`. |
+| `docs/` | API and business metric reference documentation. |
+| `tests/` | Backend contract, safety, and routing tests. |
+
+SQL execution is centralized in `app.db.get_db()`. The validator allows only
+`SELECT` or `WITH ... SELECT`, blocks dangerous keywords and sensitive columns,
+requires tenant scope for business tables, and wraps results with row limits.

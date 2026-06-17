@@ -6,17 +6,14 @@ from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 
 from app.config import ensure_openai_key, get_sql_agent_settings
-from app.config.settings import APP_DIR
 from app.tools.diagnostic_tools import DIAGNOSTIC_TOOLS
-
-
-DIAGNOSTIC_PROMPT_PATH = APP_DIR / "skills" / "modules" / "diagnostic_analytics.md"
+from app.utils.skill_loader import load_skill_body
 
 
 def load_diagnostic_prompt() -> str:
     """Load the Diagnostic Analytics instructions from the dedicated skill module."""
 
-    return DIAGNOSTIC_PROMPT_PATH.read_text(encoding="utf-8").strip()
+    return load_skill_body("diagnostic_analytics").strip()
 
 
 def create_diagnostic_agent(
