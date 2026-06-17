@@ -19,6 +19,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import streamlit as st
 
@@ -35,7 +36,7 @@ from app.orchestrator import (  # noqa: E402
     create_default_router,
     create_default_sql_agent,
 )
-from app.org_context import active_org_context  # noqa: E402
+from app.org_context import active_org_context, active_timezone_context  # noqa: E402
 from app.poc_chat_history import (  # noqa: E402
     clear_poc_chat_history,
     fetch_latest_poc_chat_history,
@@ -78,8 +79,13 @@ COMPACT_TABLE_MAX_COLUMNS = 8
 COMPACT_TABLE_MAX_ROWS = 30
 MAX_CONTEXT_TURNS = 5
 POC_FALLBACK_ORG_ID = "local_demo"
+DEFAULT_UI_TIMEZONE = "Europe/Amsterdam"
 USER_ORG_ENV_VAR = "DEMO_ORG_ID"
 ADMIN_ORG_ENV_VAR = "LIVE_ORG_ID"
+USER_TIMEZONE_ENV_VAR = "DEMO_TIMEZONE"
+ADMIN_TIMEZONE_ENV_VAR = "LIVE_TIMEZONE"
+MANUAL_ORG_SESSION_KEY = "manual_org_id"
+MANUAL_TIMEZONE_SESSION_KEY = "manual_timezone"
 SUPPLEMENTAL_FLOW_NAMES = (
     "Multi Skills Analytics",
     "Lead 360",
@@ -312,19 +318,55 @@ def get_runtime_secret(name: str) -> str | None:
     return clean_value or None
 
 
-def resolve_user_org_id() -> str:
-    demo_org_id = get_runtime_secret(USER_ORG_ENV_VAR)
-    if demo_org_id:
-        return demo_org_id
+def session_text_value(key: str) -> str | None:
+    clean_value = str(st.session_state.get(key) or "").strip()
+    return clean_value or None
 
-    st.error(
-        f"User access is not configured. Ask the app owner to configure {USER_ORG_ENV_VAR}."
-    )
-    st.stop()
+
+def resolve_user_org_id() -> str:
+    return get_runtime_secret(USER_ORG_ENV_VAR) or POC_FALLBACK_ORG_ID
+
+
+def resolve_user_timezone() -> str:
+    return get_runtime_secret(USER_TIMEZONE_ENV_VAR) or DEFAULT_UI_TIMEZONE
 
 
 def resolve_admin_org_id() -> str | None:
     return get_runtime_secret(ADMIN_ORG_ENV_VAR)
+
+
+def resolve_admin_timezone() -> str:
+    return get_runtime_secret(ADMIN_TIMEZONE_ENV_VAR) or resolve_user_timezone()
+
+
+def ensure_runtime_context_defaults() -> None:
+    if MANUAL_ORG_SESSION_KEY not in st.session_state:
+        st.session_state[MANUAL_ORG_SESSION_KEY] = (
+            resolve_admin_org_id()
+            or get_runtime_secret(USER_ORG_ENV_VAR)
+            or POC_FALLBACK_ORG_ID
+        )
+    if MANUAL_TIMEZONE_SESSION_KEY not in st.session_state:
+        st.session_state[MANUAL_TIMEZONE_SESSION_KEY] = resolve_admin_timezone()
+
+
+def manual_admin_org_id() -> str:
+    return session_text_value(MANUAL_ORG_SESSION_KEY) or POC_FALLBACK_ORG_ID
+
+
+def manual_admin_timezone() -> str:
+    return session_text_value(MANUAL_TIMEZONE_SESSION_KEY) or resolve_admin_timezone()
+
+
+def timezone_validation_error(timezone_name: str) -> str | None:
+    clean_timezone = str(timezone_name or "").strip()
+    if not clean_timezone:
+        return "Timezone is required."
+    try:
+        ZoneInfo(clean_timezone)
+    except ZoneInfoNotFoundError:
+        return f"Invalid IANA timezone: {clean_timezone}"
+    return None
 
 
 def selected_access_mode() -> str:
@@ -333,35 +375,47 @@ def selected_access_mode() -> str:
 
 
 def resolve_access_context() -> dict[str, str | bool]:
+    user_org_id = resolve_user_org_id()
+    user_timezone = resolve_user_timezone()
+
     if selected_access_mode() != "Admin":
-        user_org_id = resolve_user_org_id()
+        warning = ""
+        if not get_runtime_secret(USER_ORG_ENV_VAR):
+            warning = (
+                f"{USER_ORG_ENV_VAR} is not configured. Switch to Admin mode "
+                "and enter an org ID for dev testing."
+            )
         return {
             "mode": "User",
             "access_label": "Mode: User",
             "active_org_id": user_org_id,
-            "warning": "",
+            "active_timezone": user_timezone,
+            "warning": warning,
             "error": "",
         }
 
     admin_org_id = resolve_admin_org_id()
     admin_access_code = get_runtime_secret("ADMIN_ACCESS_CODE")
     entered_code = str(st.session_state.get("admin_access_code") or "").strip()
+    admin_org_id = manual_admin_org_id() or admin_org_id or user_org_id
+    admin_timezone = manual_admin_timezone()
 
-    if admin_org_id and entered_code and entered_code == admin_access_code:
+    if admin_org_id and admin_access_code and entered_code == admin_access_code:
         return {
             "mode": "Admin",
             "access_label": "Mode: Admin",
             "active_org_id": admin_org_id,
+            "active_timezone": admin_timezone,
             "warning": "",
             "error": "",
         }
 
-    user_org_id = resolve_user_org_id()
     if not admin_org_id or not admin_access_code:
         return {
             "mode": "User",
             "access_label": "Mode: User",
             "active_org_id": user_org_id,
+            "active_timezone": user_timezone,
             "warning": "",
             "error": "Admin access is not configured. Continuing in User mode.",
         }
@@ -370,6 +424,7 @@ def resolve_access_context() -> dict[str, str | bool]:
         "mode": "User",
         "access_label": "Mode: User",
         "active_org_id": user_org_id,
+        "active_timezone": user_timezone,
         "warning": "Invalid admin access code. Continuing in User mode.",
         "error": "",
     }
@@ -379,9 +434,16 @@ def current_organization_id() -> str:
     return str(resolve_access_context()["active_org_id"])
 
 
+def current_timezone_name() -> str:
+    return str(resolve_access_context()["active_timezone"])
+
+
 @contextmanager
 def active_org_environment(organization_id: str) -> Iterator[None]:
-    with active_org_context(organization_id):
+    with (
+        active_org_context(organization_id),
+        active_timezone_context(current_timezone_name()),
+    ):
         yield
 
 
@@ -855,6 +917,7 @@ def effective_runtime_params(params_json: str | None) -> dict[str, Any] | None:
 
     params = dict(parsed_params)
     params["org_id"] = current_organization_id()
+    params["timezone"] = current_timezone_name()
     settings = get_sql_agent_settings()
     params.setdefault("limit", settings.max_tool_rows)
     return params
@@ -1671,12 +1734,13 @@ def run_question(
             return
 
     organization_id = current_organization_id()
+    timezone_name = current_timezone_name()
     return run_chatbot_turn(
         ChatRequest(
             question=question,
             user_id="streamlit_local_user",
             org_id=organization_id,
-            timezone="Europe/Amsterdam",
+            timezone=timezone_name,
         ),
         progress_callback=emit_progress,
         persist_history=True,
@@ -2025,8 +2089,10 @@ def render_question_picker(
 
 
 def render_sidebar() -> None:
+    ensure_runtime_context_defaults()
     settings = get_sql_agent_settings()
     organization_id = current_organization_id()
+    timezone_name = current_timezone_name()
     access_context = resolve_access_context()
     model_label = html.escape(str(settings.model).upper())
     skill_label = html.escape(enabled_skill_summary(settings.enabled_skills))
@@ -2047,15 +2113,34 @@ def render_sidebar() -> None:
                 type="password",
                 key="admin_access_code",
             )
+            st.text_input(
+                "Organization ID",
+                key=MANUAL_ORG_SESSION_KEY,
+                placeholder="org_...",
+                help="Used as the active clerk_org_id for this Streamlit session.",
+            )
+            st.text_input(
+                "Timezone",
+                key=MANUAL_TIMEZONE_SESSION_KEY,
+                placeholder=DEFAULT_UI_TIMEZONE,
+                help="Use an IANA timezone, for example Europe/Amsterdam or Asia/Kolkata.",
+            )
         access_context = resolve_access_context()
         organization_id = str(access_context["active_org_id"])
+        timezone_name = str(access_context["active_timezone"])
+        is_admin_mode = str(access_context.get("mode") or "") == "Admin"
         st.caption(str(access_context["access_label"]))
+        if is_admin_mode:
+            st.caption(f"Org: `{organization_id}`")
+        st.caption(f"Timezone: `{timezone_name}`")
         if access_context.get("error"):
             st.error(str(access_context["error"]))
         elif access_context.get("warning"):
             st.warning(str(access_context["warning"]))
+        timezone_error = timezone_validation_error(timezone_name)
+        if timezone_error:
+            st.error(timezone_error)
         st.divider()
-        is_admin_mode = str(access_context.get("mode") or "") == "Admin"
 
         st.markdown(
             f"""
@@ -2179,6 +2264,7 @@ def main() -> None:
         layout=LAYOUT,
     )
     inject_styles()
+    ensure_runtime_context_defaults()
     init_state()
     render_sidebar()
 

@@ -22,7 +22,7 @@ from app.orchestrator import (
     create_default_sql_agent,
     final_answer_from,
 )
-from app.org_context import active_org_context
+from app.org_context import active_org_context, active_timezone_context
 from app.poc_chat_history import (
     fetch_router_poc_chat_history,
     insert_poc_chat_history,
@@ -755,7 +755,7 @@ def run_chatbot_turn(
     _emit_progress(progress_callback, "Understanding your question...")
     started_at = time.perf_counter()
 
-    with active_org_context(org_id):
+    with active_org_context(org_id), active_timezone_context(requested_timezone):
         _emit_progress(progress_callback, "Loading recent conversation context...")
         chat_history = _chat_history_for_request(
             request,

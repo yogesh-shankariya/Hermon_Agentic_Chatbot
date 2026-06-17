@@ -5,7 +5,12 @@ import unittest
 from unittest.mock import patch
 
 from app.config import get_org_timezone, get_sql_agent_settings
-from app.org_context import active_org_context, get_active_org_id
+from app.org_context import (
+    active_org_context,
+    active_timezone_context,
+    get_active_org_id,
+    get_active_timezone_name,
+)
 
 
 class OrgContextTests(unittest.TestCase):
@@ -63,6 +68,29 @@ class OrgContextTests(unittest.TestCase):
         with patch("app.config.settings.load_app_config", return_value=config):
             with self.assertRaisesRegex(RuntimeError, "invalid IANA timezone"):
                 get_org_timezone("org_bad")
+
+    def test_active_timezone_context_overrides_configured_org_timezone(self):
+        config = {
+            "organization_timezones": {
+                "default_timezone": "UTC",
+                "by_org_id": {
+                    "org_demo": "Europe/Amsterdam",
+                },
+            }
+        }
+
+        with patch("app.config.settings.load_app_config", return_value=config):
+            with active_timezone_context("Asia/Kolkata"):
+                self.assertEqual(get_active_timezone_name(), "Asia/Kolkata")
+                self.assertEqual(get_org_timezone("org_demo"), "Asia/Kolkata")
+
+            self.assertIsNone(get_active_timezone_name())
+            self.assertEqual(get_org_timezone("org_demo"), "Europe/Amsterdam")
+
+    def test_active_timezone_context_rejects_invalid_timezone(self):
+        with self.assertRaisesRegex(ValueError, "Invalid IANA timezone"):
+            with active_timezone_context("Amsterdam"):
+                pass
 
 
 if __name__ == "__main__":

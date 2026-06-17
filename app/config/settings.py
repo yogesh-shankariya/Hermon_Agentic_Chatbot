@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import yaml
 from dotenv import load_dotenv
 
-from app.org_context import get_active_org_id
+from app.org_context import get_active_org_id, get_active_timezone_name
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -116,6 +116,13 @@ def _validate_timezone_name(timezone_name: str, *, config_key: str) -> str:
 
 def get_org_timezone(org_id: str | None) -> str:
     """Return the configured IANA timezone for an organization."""
+
+    active_timezone = get_active_timezone_name()
+    if active_timezone:
+        return _validate_timezone_name(
+            active_timezone,
+            config_key="active request timezone",
+        )
 
     config = load_app_config()
     timezone_config = config.get("organization_timezones", {})

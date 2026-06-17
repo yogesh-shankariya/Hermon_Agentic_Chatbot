@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from app.org_context import active_timezone_context
 from app.db.postgres import (
     QueryValidationError,
     ReadOnlyPostgres,
@@ -94,6 +95,26 @@ class ReadOnlyPostgresTimezoneTests(unittest.TestCase):
         self.assertTrue(connection.transaction.committed)
         self.assertFalse(connection.transaction.rolled_back)
         self.assertIn("LIMIT 5", connection.executed[0]["statement"])
+
+    def test_query_records_uses_active_timezone_context_when_argument_omitted(self):
+        connection = FakeConnection()
+        runner = self._runner_with_connection(connection)
+
+        with active_timezone_context("Asia/Kolkata"):
+            rows = runner.query_records(
+                "SELECT 1 AS answer",
+                params={"org_id": "org_demo"},
+            )
+
+        self.assertEqual(rows, [{"answer": 1}])
+        self.assertEqual(
+            connection.commands,
+            [
+                "SET TRANSACTION READ ONLY",
+                "SET LOCAL TIME ZONE 'Asia/Kolkata'",
+                "SET LOCAL statement_timeout = 4321",
+            ],
+        )
 
     def test_query_records_rejects_invalid_timezone(self):
         connection = FakeConnection()

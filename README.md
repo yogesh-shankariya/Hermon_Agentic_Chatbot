@@ -25,6 +25,8 @@ Streamlit secrets:
 DEMO_ORG_ID="..."
 LIVE_ORG_ID="..."
 ADMIN_ACCESS_CODE="..."
+DEMO_TIMEZONE="Europe/Amsterdam"
+LIVE_TIMEZONE="Europe/Amsterdam"
 ```
 
 Optional `.env` value:
@@ -79,11 +81,16 @@ HERMON_DEFAULT_CLERK_ORG_ID = "..."
 DEMO_ORG_ID = "..."
 LIVE_ORG_ID = "..."
 ADMIN_ACCESS_CODE = "..."
+DEMO_TIMEZONE = "Europe/Amsterdam"
+LIVE_TIMEZONE = "Europe/Amsterdam"
 ```
 
-The Streamlit UI reads `DEMO_ORG_ID`, `LIVE_ORG_ID`, and `ADMIN_ACCESS_CODE`
-from `st.secrets` first, then falls back to environment variables for local
-development. Keep local `.streamlit/secrets.toml` and `.env` files out of git.
+The Streamlit UI reads `DEMO_ORG_ID`, `LIVE_ORG_ID`, `ADMIN_ACCESS_CODE`,
+`DEMO_TIMEZONE`, and `LIVE_TIMEZONE` from `st.secrets` first, then falls back
+to environment variables for local development. Admin mode also exposes manual
+Organization ID and Timezone fields for testing dev databases with a specific
+org/timezone pair. Keep local `.streamlit/secrets.toml` and `.env` files out of
+git.
 
 ## Project Structure
 

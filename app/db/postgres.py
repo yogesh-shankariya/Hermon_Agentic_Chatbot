@@ -24,6 +24,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from app.config import get_database_settings
+from app.org_context import get_active_timezone_name
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -224,11 +225,12 @@ class ReadOnlyPostgres:
         timezone_name: str | None = None,
     ) -> pd.DataFrame:
         engine = self._get_engine()
+        effective_timezone = timezone_name or get_active_timezone_name()
         with engine.connect() as conn:
             transaction = conn.begin()
             try:
                 conn.exec_driver_sql("SET TRANSACTION READ ONLY")
-                self._set_local_timezone(conn, timezone_name)
+                self._set_local_timezone(conn, effective_timezone)
                 conn.exec_driver_sql(
                     f"SET LOCAL statement_timeout = {int(self.config.statement_timeout_ms)}"
                 )
@@ -248,11 +250,12 @@ class ReadOnlyPostgres:
         timezone_name: str | None = None,
     ) -> list[dict[str, Any]]:
         engine = self._get_engine()
+        effective_timezone = timezone_name or get_active_timezone_name()
         with engine.connect() as conn:
             transaction = conn.begin()
             try:
                 conn.exec_driver_sql("SET TRANSACTION READ ONLY")
-                self._set_local_timezone(conn, timezone_name)
+                self._set_local_timezone(conn, effective_timezone)
                 statement_timeout_ms = int(timeout_ms or self.config.statement_timeout_ms)
                 conn.exec_driver_sql(
                     f"SET LOCAL statement_timeout = {statement_timeout_ms}"
